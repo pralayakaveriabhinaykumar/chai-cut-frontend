@@ -7,6 +7,13 @@
  * The default kit (Phase 1, user 2026-10-17): one kit can be marked default; every new clip gets it
  * by itself — made by hand, from Best moments or Ask AI (server services/brandKits.ts
  * brandNewClips), and by Make my clips (the worker's lib/brandKit.ts mirrors what it puts on).
+ *
+ * What a kit holds (decided 2026-10-27, brand kit Phase 0): colours, a logo, an @handle, fonts, a
+ * title style, a caption look, the Branded card and brand corners, whether it's the default, and its
+ * brand lock. The brand sound, brand voice and names & spellings that kits held for a while (taken out
+ * of the kit's screens 2026-10-20) are gone from it: a kit saved with them loses them on its next save.
+ * Its progress bar, end card, intro and outro came back in Phase 4 (2026-10-27), now through the brand
+ * engine like the rest — under new keys, so what an older kit kept of them doesn't come back on by itself.
  */
 import type { CaptionStyle, AnimationType } from './types'
 import { cleanCardLook, DEFAULT_CARD_LOOK, type CardLook } from './brandCard'
@@ -16,9 +23,9 @@ export type LogoCorner = 'tl' | 'tr' | 'bl' | 'br'
 export type LogoShow = 'all' | 'start' | 'end'
 
 /**
- * A bar along the top or bottom edge that fills from the left as the clip plays (clips.progress_bar;
- * the preview draws it in VideoPreview, the export in render.py): its colour, its thickness in px on
- * a 1080 × 1920 frame, and its edge
+ * A clip's progress bar: a bar along the top or bottom edge that fills from the left as the clip
+ * plays (clips.progress_bar, set in the Brand kit panel; the preview draws it in VideoPreview, the
+ * export in render.py): its colour, its thickness in px on a 1080 × 1920 frame, and its edge
  */
 export interface ProgressBar { color: string; height: number; position: 'top' | 'bottom' }
 
@@ -37,6 +44,19 @@ export interface BrandCaptions {
   uppercase: boolean
   words_per_line: number | null
 }
+
+/**
+ * A ready text style of a kit (brand kit rebuild, Phase 3): "+ Text" in the editor adds text in it.
+ * `font` null: the kit's title font; `bg`: a box behind it — a colour, 'accent' (the kit's accent
+ * colour, as it changes), or null: none.
+ */
+export interface BrandTextStyle { font: string | null; color: string; size: number; bg: string | null; uppercase: boolean }
+/** Which ready style: the kit's title style (`title`), or one of `styles` */
+export type BrandTextKind = 'title' | 'subtitle' | 'cta'
+
+/** A kit's caption look besides its main one (Phase 3: up to MAX_MORE_CAPTIONS), with its name */
+export interface BrandCaptionLook { id: string; name: string; captions: BrandCaptions }
+export const MAX_MORE_CAPTIONS = 2
 
 export interface BrandKitData {
   /**
@@ -60,34 +80,25 @@ export interface BrandKitData {
     /** The whole clip, or only its first / last `seconds` */
     show: LogoShow
     seconds: number
+    /** In its corner, kept clear of the apps' own buttons and header (LOGO_SAFE) — Phase 4 */
+    safe: boolean
+    /** On each clip, in whichever corner is clear of its captions and faces, the kit's corner first (pickLogoCorner) — Phase 4 */
+    smart: boolean
   }
   captions: BrandCaptions
-  /** The progress bar new clips and Apply put on (on: they do) */
-  progress: ProgressBar & { on: boolean }
-  /**
-   * Videos from the user's library played before and after the clip: Apply puts them in at its start
-   * and end (EditorShell brandInserts; the export plays them like any video put in between). null = none
-   */
-  intro: string | null
-  outro: string | null
-  /** Apply makes the clip's last `seconds` (before the outro) a Branded card with the kit's title and @handle */
-  end_card: { on: boolean; seconds: number }
   /**
    * The kit's own fonts (uploaded TTF / OTF, up to MAX_BRAND_FONTS): "BrandFont-<id>" is the family
    * name text and captions use (the file is brand/<user>/fonts/<id>); `name` is what the user calls it
    */
   fonts: BrandFont[]
-  /** How the AI writes titles, hooks and post text (lib/clipText.ts BrandVoice) */
-  voice: { tone: string; avoid: string; hashtags: string[]; cta: string }
-  /**
-   * Names and words captions must spell exactly (brand, products, people): the worker corrects
-   * them after transcribing (its lib/glossary.ts), one per entry, up to MAX_GLOSSARY
-   */
-  glossary: string[]
   /** The channel's @handle (shown on the Branded card) */
   handle: string
   /** Frame titles and text on the clip: font family (null = the default), colour and size (px at 1080 wide) */
   title: { font: string | null; color: string; size: number }
+  /** Its other ready text styles: a subtitle and a call to action ("Follow for more") */
+  styles: { subtitle: BrandTextStyle; cta: BrandTextStyle }
+  /** More caption looks besides `captions` ("Bold for hooks"…), switched to in one tap in the editor */
+  more_captions: BrandCaptionLook[]
   /** The Branded card's title */
   card_title: string
   /**
@@ -99,16 +110,6 @@ export interface BrandKitData {
   /** The account's default kit: new clips get it by themselves (at most one kit is) */
   is_default: boolean
   /**
-   * Brand sound (Apply puts it on): `music` under the clip (between its intro and outro), at its
-   * volume, quieter while someone talks; `sting`, a short sound logo, at the clip's very start or
-   * end. Files are the owner's stored audio (audio/<user>/…, like any song in the editor).
-   */
-  sound: {
-    music: { path: string; name: string; volume: number } | null
-    sting: { path: string; name: string } | null
-    sting_at: 'start' | 'end'
-  }
-  /**
    * Brand corners: a rounding (0–100, the Corners slider) the brand puts on every frame of a clip it's
    * on, and frames picked while it's on; null = frames keep their own. (The kit's own list of frames,
    * shown first in the Frames tool, was dropped 2026-10-19: the brand shows on whatever is picked.)
@@ -116,7 +117,28 @@ export interface BrandKitData {
   frames: { corners: number | null }
   /** Brand lock: the people the kit is shared with can pick only its colours and fonts (brandLockOf) */
   lock: boolean
+  /**
+   * The progress bar the brand puts on its clips (Phase 4) when `on`: as a clip's own (ProgressBar),
+   * its colour a colour or 'accent' — the kit's accent colour, as it changes (brandProgressBar)
+   */
+  progress_bar: BrandProgress
+  /**
+   * How the brand ends and starts its clips (Phase 4): an end card — the clip's last `seconds` made its
+   * Branded card (modules/brand/endCard.ts) — and an intro and outro: videos of the user's library put
+   * in before and after it (their ids; null: none)
+   */
+  ends: BrandEnds
 }
+
+export interface BrandEnds { card: boolean; seconds: number; intro: BrandEndVideo | null; outro: BrandEndVideo | null }
+/** An intro or outro: a video of the library, its length (ms) and its name as picked */
+export interface BrandEndVideo { id: string; ms: number; title: string }
+/** How long an end card is (s) */
+export const END_CARD_SECONDS: [number, number] = [2, 8]
+/** The longest video an intro or outro can be (ms) */
+export const MAX_END_VIDEO_MS = 30_000
+
+export interface BrandProgress { on: boolean; color: string; height: number; position: ProgressBar['position'] }
 
 /** The Branded card a kit customizes: its look, and its title's and @handle's colour, size and whether each shows */
 export interface BrandCardSettings extends CardLook {
@@ -131,9 +153,6 @@ export interface BrandKit {
   data: BrandKitData
   /** A signed link to the logo — for showing it only, never saved */
   logo_url?: string | null
-  /** Playable links to its sound files — for the editor only, never saved */
-  music_url?: string | null
-  sting_url?: string | null
   /** A kit someone shared with this user: who (their name or email). They can use it, not change it. */
   shared_by?: string | null
 }
@@ -144,9 +163,6 @@ export const brandKitLimit = (plan: string | null | undefined) => BRAND_KIT_LIMI
 
 export const LOGO_SIZE: [number, number] = [0.06, 0.5]
 export interface BrandFont { family: string; name: string }
-/** How many names the glossary holds, and its brand hashtags */
-export const MAX_GLOSSARY = 50
-export const MAX_BRAND_HASHTAGS = 5
 
 /** How many fonts a kit can hold */
 export const MAX_BRAND_FONTS = 4
@@ -161,8 +177,6 @@ export const LOGO_SECONDS: [number, number] = [1, 15]
 /** How many people one kit can be shared with, and the plans that can share (user's plan names) */
 export const MAX_KIT_SHARES = 10
 export const SHARE_PLANS = ['agency']
-/** How long an end card is (s) */
-export const END_CARD_SECONDS: [number, number] = [2, 10]
 /** A progress bar's thickness (px on a 1080 × 1920 frame) */
 export const PROGRESS_HEIGHT: [number, number] = [4, 40]
 /** More brand colours besides the main and accent */
@@ -177,30 +191,28 @@ export const DEFAULT_BRAND_CAPTIONS: BrandCaptions = {
 
 export const DEFAULT_BRAND_KIT: BrandKitData = {
   colors: { main: '#1c1c22', accent: '#c8ff00', extra: [] },
-  logo: { path: null, ratio: null, corner: 'tr', x: null, y: null, size: 0.18, opacity: 0.9, show: 'all', seconds: 3 },
+  logo: { path: null, ratio: null, corner: 'tr', x: null, y: null, size: 0.18, opacity: 0.9, show: 'all', seconds: 3, safe: true, smart: true },
   captions: DEFAULT_BRAND_CAPTIONS,
-  progress: { on: false, color: '#c8ff00', height: 12, position: 'bottom' },
-  intro: null,
-  outro: null,
-  end_card: { on: false, seconds: 3 },
-  sound: { music: null, sting: null, sting_at: 'start' },
   frames: { corners: null },
   lock: false,
   fonts: [],
-  voice: { tone: '', avoid: '', hashtags: [], cta: '' },
-  glossary: [],
   handle: '',
   title: { font: null, color: '#ffffff', size: 64 },
+  styles: {
+    subtitle: { font: null, color: '#ffffff', size: 44, bg: null, uppercase: false },
+    cta: { font: null, color: '#0a0a0a', size: 48, bg: 'accent', uppercase: true },
+  },
+  more_captions: [],
   card_title: '',
   card: { ...DEFAULT_CARD_LOOK, title: { show: true, color: '#ffffff', size: 64 }, handle: { show: true, color: '#c8ff00', size: 40 } },
   is_default: false,
+  progress_bar: { on: false, color: 'accent', height: 12, position: 'bottom' },
+  ends: { card: false, seconds: 3, intro: null, outro: null },
 }
 
 const ANIMATIONS: AnimationType[] = ['karaoke', 'fade', 'none', 'pop', 'highlight', 'bounce', 'word', 'hormozi', 'box', 'glow']
 
 const HEX = /^#[0-9a-f]{6}$/i
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const videoId = (v: unknown) => (typeof v === 'string' && UUID.test(v) ? v.toLowerCase() : null)
 const color = (v: unknown, fallback: string) => (typeof v === 'string' && HEX.test(v) ? v.toLowerCase() : fallback)
 const num = (v: unknown, lo: number, hi: number, fallback: number) =>
   typeof v === 'number' && isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback
@@ -215,6 +227,21 @@ export function cleanProgressBar(raw: unknown, fallbackColor = '#ffffff'): Progr
     height: Math.round(num(p.height, PROGRESS_HEIGHT[0], PROGRESS_HEIGHT[1], 12)),
     position: p.position === 'top' ? 'top' : 'bottom',
   }
+}
+
+/** Whether two intros (or outros) are the same video at the same length */
+export const sameEndVideo = (a: BrandEndVideo | null, b: BrandEndVideo | null) => (a?.id ?? null) === (b?.id ?? null) && (a?.ms ?? 0) === (b?.ms ?? 0)
+
+function endVideoOf(raw: unknown): BrandEndVideo | null {
+  const v = raw && typeof raw === 'object' ? raw as Record<string, unknown> : null
+  if (!v || typeof v.id !== 'string' || !/^[0-9a-f-]{36}$/i.test(v.id) || typeof v.ms !== 'number' || !(v.ms >= 300)) return null
+  return { id: v.id.toLowerCase(), ms: Math.round(Math.min(MAX_END_VIDEO_MS, v.ms)), title: text(v.title, 80) }
+}
+
+/** The progress bar a kit puts on its clips (its accent colour filled in); null: none */
+export function brandProgressBar(d: Pick<BrandKitData, 'progress_bar' | 'colors'>): ProgressBar | null {
+  const p = d.progress_bar
+  return p?.on ? { color: p.color === 'accent' ? d.colors.accent : p.color, height: p.height, position: p.position } : null
 }
 
 /** A kit's settings as they may be saved: anything missing or wrong takes the default */
@@ -243,6 +270,9 @@ export function cleanBrandKitData(raw: unknown, userId?: string): BrandKitData {
       opacity: num(logo.opacity, 0.1, 1, def.logo.opacity),
       show: (['all', 'start', 'end'] as const).includes(logo.show as LogoShow) ? logo.show as LogoShow : def.logo.show,
       seconds: Math.round(num(logo.seconds, LOGO_SECONDS[0], LOGO_SECONDS[1], def.logo.seconds)),
+      // (on unless switched off: a kit from before these keeps clear and moves off faces too)
+      safe: logo.safe !== false,
+      smart: logo.smart !== false,
     },
     captions: {
       on: cap.on === true,
@@ -255,33 +285,28 @@ export function cleanBrandKitData(raw: unknown, userId?: string): BrandKitData {
       uppercase: cap.uppercase === true,
       words_per_line: typeof cap.words_per_line === 'number' ? Math.round(num(cap.words_per_line, 1, 10, 3)) : null,
     },
-    progress: { ...(cleanProgressBar(d.progress, def.progress.color) ?? def.progress), on: d.progress?.on === true },
-    intro: videoId(d.intro),
-    outro: videoId(d.outro),
-    end_card: {
-      on: d.end_card?.on === true,
-      seconds: Math.round(num(d.end_card?.seconds, END_CARD_SECONDS[0], END_CARD_SECONDS[1], def.end_card.seconds)),
-    },
     fonts: (Array.isArray(d.fonts) ? d.fonts : [])
       .filter((f: any) => f && isBrandFont(f.family))
       .map((f: any) => ({ family: String(f.family), name: text(f.name, 40).trim() || 'Brand font' }))
       .filter((f: BrandFont, i: number, all: BrandFont[]) => all.findIndex(x => x.family === f.family) === i)
       .slice(0, MAX_BRAND_FONTS),
-    voice: {
-      tone: text(d.voice?.tone, 200),
-      avoid: text(d.voice?.avoid, 200),
-      hashtags: (Array.isArray(d.voice?.hashtags) ? d.voice.hashtags : [])
-        .map((h: unknown) => text(h, 40).replace(/^#+/, '').replace(/\s+/g, '')).filter(Boolean).slice(0, MAX_BRAND_HASHTAGS),
-      cta: text(d.voice?.cta, 120),
-    },
-    glossary: [...new Set((Array.isArray(d.glossary) ? d.glossary : [])
-      .map((g: unknown) => text(g, 40).replace(/\s+/g, ' ').trim()).filter(Boolean))].slice(0, MAX_GLOSSARY) as string[],
     handle: text(d.handle, 40).replace(/\s+/g, ''),
     title: {
       font: typeof d.title?.font === 'string' && d.title.font.length <= 60 ? d.title.font : null,
       color: color(d.title?.color, def.title.color),
       size: Math.round(num(d.title?.size, 24, 160, def.title.size)),
     },
+    styles: {
+      subtitle: cleanTextStyle(d.styles?.subtitle, def.styles.subtitle),
+      cta: cleanTextStyle(d.styles?.cta, def.styles.cta),
+    },
+    more_captions: (Array.isArray(d.more_captions) ? d.more_captions : [])
+      .filter((x: any) => x && typeof x === 'object')
+      .map((x: any, i: number) => ({ ...x, id: typeof x.id === 'string' && /^[\w-]{1,40}$/.test(x.id) ? x.id : `look-${i + 1}` }))
+      .filter((x: any, i: number, all: any[]) => all.findIndex(y => y.id === x.id) === i)
+      .slice(0, MAX_MORE_CAPTIONS)
+      // (named after the ones kept: the main look is the first)
+      .map((x: any, i: number): BrandCaptionLook => ({ id: x.id, name: text(x.name, 30).trim() || `Look ${i + 2}`, captions: cleanCaptions(x.captions) })),
     card_title: text(d.card_title, 80),
     // (a kit from before its card was customized: the card as it looked then — the main colour,
     // the title style's colour and size, the accent on the @handle)
@@ -291,12 +316,18 @@ export function cleanBrandKitData(raw: unknown, userId?: string): BrandKitData {
       handle: { show: true, color: color(d.colors?.accent, def.colors.accent), size: 40 },
     }),
     is_default: d.is_default === true,
-    sound: {
-      music: audioPath(d.sound?.music?.path, userId)
-        ? { path: d.sound.music.path, name: text(d.sound.music.name, 60) || 'Brand music', volume: num(d.sound.music.volume, 0.05, 1, 0.3) }
-        : null,
-      sting: audioPath(d.sound?.sting?.path, userId) ? { path: d.sound.sting.path, name: text(d.sound.sting.name, 60) || 'Sound logo' } : null,
-      sting_at: d.sound?.sting_at === 'end' ? 'end' : 'start',
+    // (its own key: a kit's `progress` from before 2026-10-20, hidden since, doesn't come back on by itself)
+    progress_bar: {
+      on: d.progress_bar?.on === true,
+      color: d.progress_bar?.color === 'accent' ? 'accent' : color(d.progress_bar?.color, 'accent'),
+      height: Math.round(num(d.progress_bar?.height, PROGRESS_HEIGHT[0], PROGRESS_HEIGHT[1], def.progress_bar.height)),
+      position: d.progress_bar?.position === 'top' ? 'top' : 'bottom',
+    },
+    ends: {
+      card: d.ends?.card === true,
+      seconds: Math.round(num(d.ends?.seconds, END_CARD_SECONDS[0], END_CARD_SECONDS[1], def.ends.seconds)),
+      intro: endVideoOf(d.ends?.intro),
+      outro: endVideoOf(d.ends?.outro),
     },
     frames: {
       corners: typeof d.frames?.corners === 'number' && isFinite(d.frames.corners) ? Math.round(num(d.frames.corners, 0, 100, 80)) : null,
@@ -304,6 +335,52 @@ export function cleanBrandKitData(raw: unknown, userId?: string): BrandKitData {
     lock: d.lock === true,
   }
 }
+
+/** A ready text style made safe; anything missing or wrong takes `fallback`'s */
+function cleanTextStyle(raw: unknown, fallback: BrandTextStyle): BrandTextStyle {
+  const t = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  return {
+    font: typeof t.font === 'string' && t.font.length <= 60 ? t.font : null,
+    color: color(t.color, fallback.color),
+    size: Math.round(num(t.size, 20, 160, fallback.size)),
+    // (not saved yet — a kit from before styles — the default; saved as none: none)
+    bg: t.bg === undefined ? fallback.bg : t.bg === 'accent' ? 'accent' : typeof t.bg === 'string' && HEX.test(t.bg) ? t.bg.toLowerCase() : null,
+    uppercase: typeof t.uppercase === 'boolean' ? t.uppercase : fallback.uppercase,
+  }
+}
+
+/** A caption look made safe (as a kit's main one) */
+function cleanCaptions(raw: unknown): BrandCaptions {
+  const cap = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const dc = DEFAULT_BRAND_CAPTIONS
+  return {
+    on: true,
+    template: typeof cap.template === 'string' && cap.template.length <= 60 ? cap.template : null,
+    animation: ANIMATIONS.includes(cap.animation as AnimationType) ? cap.animation as AnimationType : dc.animation,
+    font: typeof cap.font === 'string' && cap.font.length <= 60 ? cap.font : null,
+    size: Math.round(num(cap.size, 20, 100, dc.size)),
+    color: color(cap.color, dc.color),
+    highlight_color: color(cap.highlight_color, dc.highlight_color),
+    uppercase: cap.uppercase === true,
+    words_per_line: typeof cap.words_per_line === 'number' ? Math.round(num(cap.words_per_line, 1, 10, 3)) : null,
+  }
+}
+
+/**
+ * A kit's ready text style as it goes on text (Phase 3): the title style, or its subtitle or call to
+ * action with their gaps filled — no font of their own: the title's; a box in the accent colour: that
+ * colour now
+ */
+export function brandTextStyle(d: BrandKitData, kind: BrandTextKind): BrandTextStyle {
+  if (kind === 'title') return { font: d.title.font, color: d.title.color, size: d.title.size, bg: null, uppercase: false }
+  // (a kit read before it had styles — an editor open since before an update — the defaults)
+  const st = d.styles?.[kind] ?? DEFAULT_BRAND_KIT.styles[kind]
+  return { ...st, font: st.font ?? d.title.font, bg: st.bg === 'accent' ? d.colors.accent : st.bg }
+}
+
+/** A kit's caption looks: its main one first (id 'main', named "Main"), then the others */
+export const brandCaptionLooks = (d: BrandKitData): BrandCaptionLook[] =>
+  [{ id: 'main', name: 'Main', captions: d.captions }, ...(d.more_captions ?? [])]
 
 /** A kit's Branded card settings made safe; anything missing or wrong takes `fallback`'s */
 function cleanCard(raw: unknown, fallback: BrandCardSettings): BrandCardSettings {
@@ -318,10 +395,6 @@ function cleanCard(raw: unknown, fallback: BrandCardSettings): BrandCardSettings
 
 /** The look a Branded card section carries (FrameSettings.card) from a kit's card settings */
 export const cardLookOf = (c: BrandCardSettings): CardLook => ({ bg: c.bg, video: c.video, title_at: c.title_at, handle_at: c.handle_at })
-
-/** A kit's sound file: the owner's stored audio only */
-const audioPath = (p: unknown, userId?: string): p is string =>
-  typeof p === 'string' && p.startsWith(userId ? `audio/${userId}/` : 'audio/') && !p.includes('..') && p.length < 400
 
 /**
  * What a brand lock leaves the people a kit is shared with: its colours (the palette, and its caption
@@ -358,18 +431,128 @@ export function logoSpan(logo: BrandKitData['logo'], lengthMs: number): [number,
 export const showHandle = (handle: string) => (handle ? `@${handle.replace(/^@+/, '')}` : '')
 
 /**
- * Where a kit's logo sits on the 1080 × 1920 frame (shares of the frame, like a photo on the clip):
- * its width, its height from its shape, in its corner a margin in from the edges.
+ * What Instagram Reels and YouTube Shorts draw over a video (shares of the 9:16 frame, the larger of
+ * the two: the editor's PlatformOverlay PLATFORM_SAFE): the header along the top, the name and caption
+ * along the bottom, the like / comment / share column down the right from `rightFrom`, and a thin edge.
+ * A logo kept clear (logo.safe) sits inside it.
  */
-export function logoBox(logo: BrandKitData['logo'], frameW = 1080, frameH = 1920): { x: number; y: number; w: number; h: number } {
+export const LOGO_SAFE = { top: 0.08, bottom: 0.13, right: 0.14, rightFrom: 0.45, edge: 0.035 }
+
+/** A box on the frame, as shares of it */
+export interface FrameRect { x: number; y: number; w: number; h: number }
+
+const r4 = (v: number) => Math.round(v * 10000) / 10000
+
+/**
+ * Where a kit's logo sits on the 1080 × 1920 frame (shares of the frame, like a photo on the clip):
+ * its width, its height from its shape, in its corner (`corner`, else the kit's) a margin in from the
+ * edges — kept clear of the apps' buttons (logo.safe): below their header, above their caption, left
+ * of their button column.
+ */
+export function logoBox(logo: BrandKitData['logo'], frameW = 1080, frameH = 1920, corner: LogoCorner = logo.corner): FrameRect {
   const w = logo.size
   const h = Math.min(0.9, (w * frameW * (logo.ratio ?? 1)) / frameH)
-  const mx = LOGO_MARGIN, my = (LOGO_MARGIN * frameW) / frameH
+  const safe = logo.safe !== false
+  const mx = safe ? Math.max(LOGO_MARGIN, LOGO_SAFE.edge) : LOGO_MARGIN
+  const top = safe ? LOGO_SAFE.top : (LOGO_MARGIN * frameW) / frameH
+  const bottom = safe ? LOGO_SAFE.bottom : (LOGO_MARGIN * frameW) / frameH
+  // (bottom right: left of the button column, which runs down the right from `rightFrom`)
+  const right = safe && corner === 'br' ? LOGO_SAFE.right : mx
   // Placed anywhere (dragged): there, kept inside the frame; else in its corner
-  const x = logo.x !== null ? Math.min(1 - w, Math.max(0, logo.x)) : logo.corner.endsWith('l') ? mx : 1 - mx - w
-  const y = logo.y !== null ? Math.min(1 - h, Math.max(0, logo.y)) : logo.corner.startsWith('t') ? my : 1 - my - h
-  return { x: Math.round(x * 10000) / 10000, y: Math.round(y * 10000) / 10000, w: Math.round(w * 10000) / 10000, h: Math.round(h * 10000) / 10000 }
+  const x = logo.x !== null ? Math.min(1 - w, Math.max(0, logo.x)) : corner.endsWith('l') ? mx : 1 - right - w
+  const y = logo.y !== null ? Math.min(1 - h, Math.max(0, logo.y)) : corner.startsWith('t') ? top : 1 - bottom - h
+  return { x: r4(x), y: r4(y), w: r4(w), h: r4(h) }
 }
+
+/** A logo as a watermark (Phase 4): small, faint, the whole clip, clear of the apps' buttons */
+export const WATERMARK = { size: 0.12, opacity: 0.5, show: 'all', safe: true } as const satisfies Partial<BrandKitData['logo']>
+export const isWatermark = (logo: BrandKitData['logo']) =>
+  Math.abs(logo.size - WATERMARK.size) < 0.005 && Math.abs(logo.opacity - WATERMARK.opacity) < 0.01 && logo.show === WATERMARK.show && logo.safe
+
+/** How much two boxes overlap (a share of the frame's area) */
+const overlapArea = (a: FrameRect, b: FrameRect) =>
+  Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y))
+
+/**
+ * The corner a kit's logo is clearest in on a clip (Phase 4, "smart spot"): the kit's own corner when
+ * nothing is in the way there, else the corner covering the least of what's to `avoid` — its captions,
+ * the faces in it — the kit's corner winning a tie
+ */
+export function pickLogoCorner(logo: BrandKitData['logo'], avoid: FrameRect[]): LogoCorner {
+  const order = [...new Set<LogoCorner>([logo.corner, 'tr', 'tl', 'br', 'bl'])]
+  const cost = (c: LogoCorner) => { const b = logoBox(logo, 1080, 1920, c); return avoid.reduce((t, a) => t + overlapArea(b, a), 0) }
+  const scored = order.map(c => ({ c, v: cost(c) }))
+  const clear = scored.find(x => x.v < 1e-4)
+  return (clear ?? scored.reduce((best, x) => (x.v < best.v - 1e-6 ? x : best))).c
+}
+
+/** Where a kit's logo goes on a clip: placed by hand — there; else in its corner, or the clearest one (logo.smart) */
+export function brandLogoBox(logo: BrandKitData['logo'], avoid: FrameRect[] = []): FrameRect {
+  if (logo.x !== null || !logo.smart || !avoid.length) return logoBox(logo)
+  return logoBox(logo, 1080, 1920, pickLogoCorner(logo, avoid))
+}
+
+/**
+ * The band captions take up on the frame (a little taller than a line or two of them), from where
+ * they sit (`y`: their middle, a share of the frame's height): for the logo to keep off
+ */
+export const captionBand = (y: number): FrameRect => ({ x: 0.06, y: Math.max(0, y - 0.08), w: 0.88, h: 0.16 })
+
+// ── Making a kit in a minute (brand kit rebuild, Phase 1) ─────────────────────
+
+/** What a website or profile link gave (server services/brandFromLink.ts) */
+export interface LinkBrand {
+  /** Where it was read from (the site's host) */
+  source: string
+  name: string | null
+  handle: string | null
+  logo: { path: string; url: string | null; ratio: number | null } | null
+  /** `extra`: more of the brand's colours, after the main and accent (none alike) */
+  colors: { main: string; accent: string | null; extra: string[] } | null
+  /** The site's heading and body fonts as editor fonts (VIDEO_FONTS); null when none was found */
+  fonts: { heading: string | null; body: string | null } | null
+}
+
+/**
+ * What one way of making a kit found — a link, an uploaded logo, or a few words (brandStyles.ts) —
+ * each part only when it was found
+ */
+export interface FoundBrand {
+  name?: string | null
+  handle?: string | null
+  logo?: { path: string; ratio: number | null } | null
+  colors?: { main: string; accent: string | null; extra: string[] } | null
+  /** The title font */
+  font?: string | null
+}
+
+/** What a link gave, as found brand parts */
+export const foundFromLink = (b: LinkBrand): FoundBrand => ({
+  name: b.name, handle: b.handle, logo: b.logo ? { path: b.logo.path, ratio: b.logo.ratio } : null,
+  colors: b.colors, font: b.fonts?.heading ?? b.fonts?.body ?? null,
+})
+
+/**
+ * A kit with what was found put in (the setup and the kit's workshop alike): the logo, colours and
+ * title font that were found take their place; the name, @handle and Branded card title go in only
+ * where the kit has none yet (they're the user's words)
+ */
+export function withFoundBrand(cur: BrandKitData, f: FoundBrand): BrandKitData {
+  return {
+    ...cur,
+    handle: cur.handle || (f.handle ?? '').replace(/^@+/, '').replace(/\s+/g, '').slice(0, 40),
+    card_title: cur.card_title || (f.name ?? '').slice(0, 80),
+    colors: f.colors
+      ? { main: f.colors.main, accent: f.colors.accent ?? cur.colors.accent, extra: f.colors.extra.length ? f.colors.extra.slice(0, MAX_EXTRA_COLORS) : cur.colors.extra }
+      : cur.colors,
+    logo: f.logo ? { ...cur.logo, path: f.logo.path, ratio: f.logo.ratio ?? cur.logo.ratio ?? 1 } : cur.logo,
+    title: f.font ? { ...cur.title, font: f.font } : cur.title,
+  }
+}
+
+/** What was found, named for the user ("logo, colours, font, name") */
+export const foundList = (f: FoundBrand) =>
+  [f.logo && 'logo', f.colors && 'colours', f.font && 'font', f.name && 'name', f.handle && '@handle'].filter((x): x is string => !!x)
 
 /** A clip's photo that is a brand kit's logo (Apply replaces it) */
 export const isBrandLogo = (storagePath: string | null | undefined) => !!storagePath && storagePath.startsWith('brand/')

@@ -4,11 +4,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { CaptionStyler, FontPicker, loadVideoFonts, type TextCase } from './CaptionStyler'
 import { PlatformOverlay, PLATFORM_SAFE, type Platform } from './PlatformOverlay'
 import { ensureBrandFont } from './brandFonts'
+import { BrandStart, BrandCard, type Found } from '@/components/brand/BrandMaker'
 import { cardAreas, cardBackgroundPixels, CARD_PATTERNS, CARD_PATTERN_SCALE, CARD_VIDEO_WIDTH, type CardPattern } from '@/lib/shared/brandCard'
 import { templateOf, templateFontFamily } from '@/modules/captions/templates'
 import {
-  LOGO_SIZE, LOGO_SECONDS, MAX_EXTRA_COLORS, MAX_BRAND_FONTS, PROGRESS_HEIGHT, MAX_KIT_SHARES, CARD_TEXT_SIZE, type BrandCardSettings,
-  brandCaptionStyle, cleanProgressBar, logoBox, showHandle,
+  LOGO_SIZE, LOGO_SECONDS, MAX_BRAND_FONTS, PROGRESS_HEIGHT, MAX_KIT_SHARES, CARD_TEXT_SIZE, type BrandCardSettings,
+  brandCaptionStyle, logoBox, showHandle, WATERMARK, isWatermark, brandProgressBar, END_CARD_SECONDS, MAX_END_VIDEO_MS, type BrandProgress, brandTextStyle, MAX_MORE_CAPTIONS, DEFAULT_BRAND_KIT, type LinkBrand, type BrandTextStyle, type BrandCaptionLook,
   type BrandKit, type BrandKitData, type BrandCaptions, type LogoCorner, type LogoShow, type ProgressBar,
 } from '@/lib/shared/brandKit'
 
@@ -20,15 +21,11 @@ import {
  */
 
 type SaveState = 'saved' | 'saving' | 'error'
-type KitPatch = { name?: string; data?: BrandKitData; logo_url?: string | null; music_url?: string | null; sting_url?: string | null }
-/** What a link gave (server services/brandFromLink.ts LinkBrand) */
-type LinkBrand = {
-  source: string; name: string | null; handle: string | null
-  logo: { path: string; url: string | null; ratio: number | null } | null
-  colors: { main: string; accent: string | null } | null
-}
+type KitPatch = { name?: string; data?: BrandKitData; logo_url?: string | null }
 const CURRENT_KEY = 'shortcut:brandKit'
 const SAVE_AFTER_MS = 600
+/** A save that didn't land is sent again after this long, longer each time (up to RETRY_MAX_MS) */
+const RETRY_FIRST_MS = 2000, RETRY_MAX_MS = 30000
 
 export interface BrandKits {
   kits: BrandKit[]
@@ -38,24 +35,30 @@ export interface BrandKits {
   error: string | null
   current: BrandKit | null
   select: (id: string) => void
-  create: () => Promise<void>
-  /** logo_url, music_url, sting_url: the new files' links, for showing and playing them (not saved) */
+  /** A new kit (picked): it's given back */
+  create: () => Promise<BrandKit>
+  /** logo_url: the new logo's link, for showing it (not saved) */
   update: (id: string, patch: KitPatch) => void
   remove: (id: string) => Promise<void>
   /** Stop using a kit someone shared with you */
   leave: (id: string) => Promise<void>
-  uploadLogo: (file: File) => Promise<{ path: string; url: string | null; ratio: number }>
+  /** A logo for a kit, stored; `colors`: its own brand colours, read from it (null: they couldn't be) */
+  uploadLogo: (file: File) => Promise<{ path: string; url: string | null; ratio: number; colors: { main: string; accent: string | null } | null }>
   /** A brand read from a website or profile link (server services/brandFromLink.ts) */
   fromLink: (url: string) => Promise<LinkBrand>
   saveState: SaveState
+  /** Why the server turned a save down (it isn't tried again); null while saves can still land */
+  saveError: string | null
   reload: () => void
 }
 
 async function json<T>(res: Response): Promise<T> {
   const body = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error((body as { error?: string }).error ?? 'Something went wrong. Please try again.')
+  if (!res.ok) throw Object.assign(new Error((body as { error?: string }).error ?? 'Something went wrong. Please try again.'), { status: res.status })
   return body as T
 }
+/** A save the server turned down for good (the kit gone, not allowed…): sending it again won't help */
+const refused = (e: unknown) => { const st = (e as { status?: number })?.status; return !!st && st >= 400 && st < 500 && st !== 408 && st !== 429 }
 
 /** A picture's height ÷ width, read in the browser before it's uploaded */
 function pictureRatio(file: File): Promise<number> {
@@ -68,6 +71,10 @@ function pictureRatio(file: File): Promise<number> {
   })
 }
 
+/** What the kit's save line says */
+export const saveLabel = (b: Pick<BrandKits, 'saveState' | 'saveError'>) =>
+  b.saveState === 'saving' ? 'Saving…' : b.saveState === 'error' ? (b.saveError ? `Not saved — ${b.saveError}` : 'Not saved yet — trying again…') : 'Saved'
+
 /** The account's brand kits: loaded once, changes saved shortly after they're made */
 export function useBrandKits(): BrandKits {
   const [kits, setKits] = useState<BrandKit[]>([])
@@ -77,10 +84,14 @@ export function useBrandKits(): BrandKits {
   const [error, setError] = useState<string | null>(null)
   const [currentId, setCurrentId] = useState<string | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('saved')
+  const [saveError, setSaveError] = useState<string | null>(null)
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
   const pending = useRef(new Map<string, { name?: string; data?: BrandKitData }>())
   /** Each kit's save on its way (the next one waits for it) */
   const sending = useRef(new Map<string, Promise<void>>())
+  /** How many times in a row a kit's save hasn't landed (it waits longer before each try) */
+  const tries = useRef(new Map<string, number>())
+  const flushRef = useRef<(id: string, keepalive?: boolean) => void>(() => {})
 
   const load = useCallback(() => {
     setLoading(true); setError(null)
@@ -95,6 +106,23 @@ export function useBrandKits(): BrandKits {
       .finally(() => setLoading(false))
   }, [])
   useEffect(() => { load() }, [load])
+  // Back to this tab (the kits may have changed in another one: the Brands page, another clip):
+  // read again, quietly — only while nothing here is waiting to be saved, so nothing typed is lost
+  useEffect(() => {
+    const again = () => {
+      if (document.visibilityState !== 'visible' || pending.current.size || timers.current.size || sending.current.size) return
+      fetch('/api/brand-kits').then(r => json<{ kits: BrandKit[]; limit: number; plan: string }>(r))
+        .then(d => {
+          if (pending.current.size || timers.current.size) return
+          setKits(d.kits); setLimit(d.limit); setPlan(d.plan)
+          setCurrentId(cur => (d.kits.some(k => k.id === cur) ? cur : d.kits[0]?.id ?? null))
+        })
+        .catch(() => { /* kept as it is */ })
+    }
+    document.addEventListener('visibilitychange', again)
+    window.addEventListener('focus', again)
+    return () => { document.removeEventListener('visibilitychange', again); window.removeEventListener('focus', again) }
+  }, [])
 
   const flush = useCallback((id: string, keepalive = false) => {
     const t = timers.current.get(id)
@@ -102,16 +130,37 @@ export function useBrandKits(): BrandKits {
     timers.current.delete(id)
     const patch = pending.current.get(id)
     pending.current.delete(id)
-    if (!patch) return
+    // (nothing left to send — only a name being retyped: what's on screen is as saved)
+    if (!patch || (patch.name === undefined && patch.data === undefined)) {
+      if (!timers.current.size && !pending.current.size && !sending.current.size) setSaveState('saved')
+      return
+    }
     setSaveState('saving')
     const send = () => fetch(`/api/brand-kits/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch), keepalive })
       .then(r => json<{ kit: BrandKit }>(r))
       // (the saved kit's logo link; what's on screen stays as typed meanwhile)
       .then(d => {
+        tries.current.delete(id)
         setKits(ks => ks.map(k => (k.id === id ? { ...k, logo_url: d.kit.logo_url ?? k.logo_url } : k)))
-        if (!timers.current.size) setSaveState('saved')
+        if (!timers.current.size && !pending.current.size) { setSaveState('saved'); setSaveError(null) }
       })
-      .catch(() => setSaveState('error'))
+      .catch(e => {
+        // Turned down (the kit deleted elsewhere, not allowed): said why, not sent again
+        if (refused(e)) {
+          tries.current.delete(id)
+          setSaveState('error'); setSaveError(e instanceof Error ? e.message : String(e))
+          return
+        }
+        // Not saved (no connection, the server busy): the change is kept — under anything changed
+        // since — and sent again shortly, then again a little later each time, until it lands
+        const newer = pending.current.get(id)
+        pending.current.set(id, { ...patch, ...newer })
+        setSaveState('error')
+        if (keepalive || timers.current.has(id)) return
+        const n = (tries.current.get(id) ?? 0) + 1
+        tries.current.set(id, n)
+        timers.current.set(id, setTimeout(() => flushRef.current(id), Math.min(RETRY_MAX_MS, RETRY_FIRST_MS * 2 ** (n - 1))))
+      })
     // One save of a kit at a time, in order: a slow earlier save landing after a later one would
     // put back what it had (leaving the editor: sent at once)
     const before = keepalive ? undefined : sending.current.get(id)
@@ -119,15 +168,34 @@ export function useBrandKits(): BrandKits {
     sending.current.set(id, run)
     run.finally(() => { if (sending.current.get(id) === run) sending.current.delete(id) })
   }, [])
+  flushRef.current = flush
   // Leaving the editor: what's still waiting is sent
   useEffect(() => () => { for (const id of [...pending.current.keys()]) flush(id, true) }, [flush])
+  // Back online: what's waiting goes at once. Leaving the page: what's waiting is sent on the way
+  // out, and if saves have been failing (it may not land), the browser asks first
+  useEffect(() => {
+    const online = () => { for (const id of [...pending.current.keys()]) flush(id) }
+    const leaving = (e: BeforeUnloadEvent) => {
+      if (!pending.current.size) return
+      const failing = tries.current.size > 0
+      for (const id of [...pending.current.keys()]) flush(id, true)
+      if (failing) e.preventDefault()
+    }
+    window.addEventListener('online', online)
+    window.addEventListener('beforeunload', leaving)
+    return () => { window.removeEventListener('online', online); window.removeEventListener('beforeunload', leaving) }
+  }, [flush])
 
-  const update = useCallback((id: string, { logo_url, music_url, sting_url, ...patch }: KitPatch) => {
+  const update = useCallback((id: string, { logo_url, ...patch }: KitPatch) => {
     setKits(ks => ks.map(k => (k.id === id ? {
       ...k, ...(patch.name !== undefined ? { name: patch.name } : {}), ...(patch.data ? { data: patch.data } : {}),
-      ...(logo_url !== undefined ? { logo_url } : {}), ...(music_url !== undefined ? { music_url } : {}), ...(sting_url !== undefined ? { sting_url } : {}),
+      ...(logo_url !== undefined ? { logo_url } : {}),
     } : k)))
-    pending.current.set(id, { ...pending.current.get(id), ...patch })
+    // (a name being retyped — empty for a moment — isn't saved: the box puts "Brand kit" back if left empty)
+    const { name, ...rest } = patch
+    const send = name !== undefined && !name.trim() ? rest : patch
+    pending.current.set(id, { ...pending.current.get(id), ...send })
+    setSaveError(null)
     const t = timers.current.get(id)
     if (t) clearTimeout(t)
     timers.current.set(id, setTimeout(() => flush(id), SAVE_AFTER_MS))
@@ -144,6 +212,7 @@ export function useBrandKits(): BrandKits {
       .then(r => json<{ kit: BrandKit }>(r))
     setKits(ks => [...ks, kit])
     select(kit.id)
+    return kit
   }, [select])
 
   const remove = useCallback(async (id: string) => {
@@ -160,8 +229,8 @@ export function useBrandKits(): BrandKits {
     const ratio = await pictureRatio(file)
     const form = new FormData()
     form.append('file', file)
-    const d = await fetch('/api/brand-kits/logo', { method: 'POST', body: form }).then(r => json<{ path: string; url: string | null }>(r))
-    return { ...d, ratio }
+    const d = await fetch('/api/brand-kits/logo', { method: 'POST', body: form }).then(r => json<{ path: string; url: string | null; colors?: { main: string; accent: string | null } | null }>(r))
+    return { ...d, colors: d.colors ?? null, ratio }
   }, [])
 
   const fromLink = useCallback((url: string) => fetch('/api/brand-kits/from-link', {
@@ -178,7 +247,7 @@ export function useBrandKits(): BrandKits {
   }, [])
 
   const current = kits.find(k => k.id === currentId) ?? null
-  return { kits, limit, plan, loading, error, current, select, create, update, remove, leave, uploadLogo, fromLink, saveState, reload: load }
+  return { kits, limit, plan, loading, error, current, select, create, update, remove, leave, uploadLogo, fromLink, saveState, saveError, reload: load }
 }
 
 /**
@@ -297,6 +366,10 @@ export function BrandKitPanel({ brand, onKitId, onTurnOn, onTurnOff, onDelete, p
         <span aria-hidden="true">+</span> {busy ? 'Making…' : 'New brand kit'}
       </button>
       {full && <p className="-mt-2 text-[11px]" style={{ color: 'rgb(var(--ed-fg) / 0.5)' }}>That&rsquo;s all your plan has room for. <a href="/pricing" className="font-semibold hover:underline" style={{ color: 'var(--ed-accent-text)' }}>Upgrade</a> for more.</p>}
+      {/* All of them, outside the editor (a new tab: this clip stays open) */}
+      <a href="/brand" target="_blank" rel="noopener" className="-mt-1 self-center text-[11px] font-semibold hover:underline" style={{ color: 'rgb(var(--ed-fg) / 0.55)' }}>
+        All your brand kits ↗
+      </a>
       {note && <p role="alert" className="-mt-2 text-[11px]" style={{ color: '#fca5a5' }}>{note}</p>}
 
       {brand.current && (
@@ -319,8 +392,8 @@ export function BrandKitPanel({ brand, onKitId, onTurnOn, onTurnOff, onDelete, p
               </summary>
               <div className="px-3 pb-3">
                 <ClipProgressBar value={progressBar ?? null} onChange={onProgressBarChange}
-                  // Switched on: the kit's bar (its colour, thickness and edge)
-                  start={cleanProgressBar(brand.current.data.progress)!} />
+                  // Switched on: in the kit's accent colour, along the bottom
+                  start={{ color: brand.current.data.colors.accent, height: 12, position: 'bottom' }} />
               </div>
             </details>
           )}
@@ -347,7 +420,7 @@ export function BrandKitPanel({ brand, onKitId, onTurnOn, onTurnOff, onDelete, p
 }
 
 /** A picture's height ÷ width from its link (null when it doesn't load) */
-function urlRatio(url: string): Promise<number | null> {
+export function urlRatio(url: string): Promise<number | null> {
   return new Promise(resolve => {
     const img = new Image()
     img.onload = () => resolve(img.naturalWidth ? img.naturalHeight / img.naturalWidth : null)
@@ -357,35 +430,6 @@ function urlRatio(url: string): Promise<number | null> {
   })
 }
 
-/** A website or profile link, read for the brand (the kit is filled from it) */
-function LinkFill({ onFill }: { onFill: (url: string) => Promise<string> }) {
-  const [url, setUrl] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [note, setNote] = useState<{ text: string; bad: boolean } | null>(null)
-  async function go() {
-    if (!url.trim() || busy) return
-    setBusy(true); setNote(null)
-    try { setNote({ text: await onFill(url.trim()), bad: false }) } catch (e) { setNote({ text: e instanceof Error ? e.message : String(e), bad: true }) } finally { setBusy(false) }
-  }
-  return (
-    <div className="flex flex-col gap-2">
-      <p className="text-[11px] -mt-1" style={{ color: 'rgb(var(--ed-fg) / 0.5)' }}>
-        Paste your website or a profile link: we take the logo, colours, name and @handle from it.
-      </p>
-      <div className="flex gap-2">
-        <input value={url} onChange={e => setUrl(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') go() }} maxLength={500}
-          placeholder="yourbrand.com or instagram.com/yourbrand" aria-label="Website or profile link"
-          className="flex-1 min-w-0 h-9 px-3 rounded-lg text-sm text-[var(--ed-text)] outline-none"
-          style={{ background: 'rgb(var(--ed-fg) / 0.06)', boxShadow: 'inset 0 0 0 1px rgb(var(--ed-fg) / 0.1)' }} />
-        <button type="button" onClick={go} disabled={busy || !url.trim()} className="h-9 px-3 rounded-lg text-xs font-semibold disabled:opacity-50"
-          style={{ color: 'var(--ed-text)', background: 'rgb(var(--ed-fg) / 0.08)', boxShadow: 'inset 0 0 0 1px rgb(var(--ed-fg) / 0.12)' }}>
-          {busy ? 'Reading…' : 'Fill the kit'}
-        </button>
-      </div>
-      {note && <p role={note.bad ? 'alert' : 'status'} className="text-[11px]" style={{ color: note.bad ? '#fca5a5' : 'var(--ed-accent-text)' }}>{note.text}</p>}
-    </div>
-  )
-}
 
 type KitShare = { user_id: string; name: string | null; email: string | null }
 
@@ -485,6 +529,95 @@ function ClipProgressBar({ value, start, onChange }: { value: ProgressBar | null
   )
 }
 
+/** A kit's progress bar (Phase 4): on its clips or not, its colour — the accent colour, or its own — thickness and edge */
+function KitProgressBar({ d, onChange }: { d: BrandKitData; onChange: (p: BrandProgress) => void }) {
+  const p = d.progress_bar, shown = brandProgressBar({ ...d, progress_bar: { ...p, on: true } })!
+  return (
+    <>
+      <label className="cap-row cursor-pointer select-none">
+        <span className="flex flex-col min-w-0">
+          <span className="cap-label">On its clips</span>
+          <span className="text-[11px]" style={{ color: 'rgb(var(--ed-fg) / 0.45)' }}>A bar that fills up as the clip plays</span>
+        </span>
+        <Switch on={p.on} label="Progress bar on its clips" onChange={on => onChange({ ...p, on })} />
+      </label>
+      {p.on && (
+        <>
+          <label className="cap-row cursor-pointer select-none">
+            <span className="cap-label">Your accent colour</span>
+            <Switch on={p.color === 'accent'} label="Progress bar in your accent colour" onChange={on => onChange({ ...p, color: on ? 'accent' : d.colors.accent })} />
+          </label>
+          <ProgressBarFields value={shown} onChange={bar => onChange({ ...p, ...bar, color: bar.color === shown.color ? p.color : bar.color })} />
+        </>
+      )}
+    </>
+  )
+}
+
+/** A kit's settings with the ones added in Phase 4 filled in, should they be missing (the server fills them in as it reads a kit) */
+const withNewFields = (d: BrandKitData): BrandKitData =>
+  d.progress_bar && d.ends ? d : { ...d, progress_bar: d.progress_bar ?? DEFAULT_BRAND_KIT.progress_bar, ends: d.ends ?? DEFAULT_BRAND_KIT.ends }
+
+/** A video of the library that can open or close clips: one of the user's own, short enough */
+type EndVideoChoice = { id: string; title: string; ms: number }
+
+/**
+ * A kit's intro and outro (Phase 4): a short video of the user's library put in before their clips,
+ * and one after them (the brand engine: modules/brand/bookends.ts)
+ */
+function KitBookends({ d, onChange }: { d: BrandKitData; onChange: (ends: Partial<BrandKitData['ends']>) => void }) {
+  const [list, setList] = useState<EndVideoChoice[] | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    let live = true
+    fetch('/api/videos?assets=1')
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error())))
+      .then((j: { videos: Array<{ id: string; title?: string | null; duration_ms?: number | null; status?: string; index?: number; is_asset?: boolean; is_upload_asset?: boolean }> }) => {
+        if (!live) return
+        // (the user's own videos, ready, short enough — not stock footage saved for B-roll)
+        setList(j.videos
+          .filter(v => (!v.is_asset || v.is_upload_asset) && (v.status ?? 'done') === 'done' && v.duration_ms && v.duration_ms >= 300 && v.duration_ms <= MAX_END_VIDEO_MS)
+          .map(v => ({ id: v.id, title: v.title?.trim() || `Video ${v.index ?? ''}`.trim(), ms: v.duration_ms! })))
+      })
+      .catch(() => { if (live) setFailed(true) })
+    return () => { live = false }
+  }, [])
+  const row = (which: 'intro' | 'outro', label: string, hint: string) => {
+    const cur = d.ends[which]
+    // (the one picked stays listed even when the list can't show it: renamed, or the list not read yet)
+    const options = [...(list ?? []), ...(cur && !list?.some(v => v.id === cur.id) ? [{ id: cur.id, title: cur.title || 'Your video', ms: cur.ms }] : [])]
+    return (
+      <div className="cap-row">
+        <span className="flex flex-col min-w-0">
+          <span className="cap-label">{label}</span>
+          <span className="text-[11px]" style={{ color: 'rgb(var(--ed-fg) / 0.45)' }}>{hint}</span>
+        </span>
+        <select value={cur?.id ?? ''} aria-label={label}
+          onChange={e => {
+            const v = options.find(x => x.id === e.target.value)
+            onChange({ [which]: v ? { id: v.id, ms: Math.min(MAX_END_VIDEO_MS, v.ms), title: v.title.slice(0, 80) } : null })
+          }}
+          className="h-9 px-2 rounded-lg text-xs text-[var(--ed-text)] outline-none max-w-[55%]"
+          style={{ background: 'rgb(var(--ed-fg) / 0.06)', boxShadow: 'inset 0 0 0 1px rgb(var(--ed-fg) / 0.1)' }}>
+          <option value="">None</option>
+          {options.map(v => <option key={v.id} value={v.id}>{v.title} · {Math.round(v.ms / 100) / 10} s</option>)}
+        </select>
+      </div>
+    )
+  }
+  return (
+    <>
+      {row('intro', 'Intro', 'Plays before each clip')}
+      {row('outro', 'Outro', 'Plays after each clip, after the end card')}
+      <p className="text-[11px]" style={{ color: 'rgb(var(--ed-fg) / 0.45)' }}>
+        {failed ? 'Your videos couldn’t be listed — try again in a moment.'
+          : list && !list.length ? `Upload a short video (up to ${MAX_END_VIDEO_MS / 1000} s) to use it here.`
+          : `Your own videos up to ${MAX_END_VIDEO_MS / 1000} s. Clips with videos on top get them when opened in the editor.`}
+      </p>
+    </>
+  )
+}
+
 /** A progress bar's colour, thickness and edge (the clip's, or a kit's) */
 function ProgressBarFields({ value, onChange }: { value: ProgressBar; onChange: (bar: ProgressBar) => void }) {
   return (
@@ -505,7 +638,7 @@ function ProgressBarFields({ value, onChange }: { value: ProgressBar; onChange: 
   )
 }
 
-function KitBadge({ kit }: { kit: BrandKit }) {
+export function KitBadge({ kit }: { kit: BrandKit }) {
   return (
     <span className="shrink-0 w-10 h-10 rounded-lg flex items-center justify-center overflow-hidden" style={{ background: kit.data.colors.main, boxShadow: '0 0 0 1px rgb(var(--ed-fg) / 0.12)' }}>
       {kit.logo_url
@@ -518,26 +651,29 @@ function KitBadge({ kit }: { kit: BrandKit }) {
 
 // ── Workshop: the kit set up, in the video's place ─────────────────────────
 // One step at a time (user, 2026-10-20: the long page was hard to follow), the preview always in view.
-// Intro / outro / end card / kit progress bar / sound and AI voice / names & spellings were taken out
-// (user, 2026-10-20): kits keep what they had saved, unused
+// Sound and AI voice / names & spellings were taken out (user, 2026-10-20). The intro / outro, end card
+// and kit progress bar taken out then came back in brand kit Phase 4 (2026-10-27), through the brand engine
 
 type StepId = 'basics' | 'text' | 'captions' | 'card' | 'team'
 const STEPS: Array<{ id: StepId; name: string; short: string; about: string }> = [
-  { id: 'basics', name: 'Basics', short: 'Logo, colours, @handle', about: 'What everything else uses: your logo, your colours and your @handle. Paste a link to fill them in for you.' },
+  { id: 'basics', name: 'Basics', short: 'Logo, colours, @handle', about: 'What everything else uses: your logo, your colours and your @handle. Start from a link, your logo or a few words, then change anything.' },
   { id: 'text', name: 'Text & fonts', short: 'Titles, fonts, corners', about: 'How text on your clips looks, your own fonts, and how round your videos are in frames.' },
   { id: 'captions', name: 'Captions', short: 'Caption style', about: 'The caption look your clips get with the brand kit on.' },
-  { id: 'card', name: 'Branded card', short: 'Your own frame', about: 'Your own frame: its background, where the video sits, and your title and @handle.' },
+  { id: 'card', name: 'Branded card', short: 'Card, end card, intro', about: 'Your own frame — its background, where the video sits, your title and @handle — and how your clips start and end.' },
   { id: 'team', name: 'Team', short: 'Share with your team', about: 'Share this kit with your team, and lock its colours and fonts for them.' },
 ]
 
-export function BrandKitStudio({ brand, onKitId, onTurnOn, onTurnOff, onClose }: BrandSwitchProps & { brand: BrandKits; onClose: () => void }) {
+export function BrandKitStudio({ brand, onKitId = null, onTurnOn, onTurnOff, onClose, closeLabel = 'Back to the video' }: Partial<BrandSwitchProps> & {
+  brand: BrandKits; onClose: () => void
+  /** What closing it goes back to (the Brands page: "Back to your brands") */
+  closeLabel?: string
+}) {
   const kit = brand.current
-  const [uploading, setUploading] = useState(false)
-  const [logoError, setLogoError] = useState<string | null>(null)
+  // What the last way in (a link, a logo, a few words) found: the card offers its colours and styles
+  const [found, setFound] = useState<Found | null>(null)
   // The app's buttons over the preview: where the logo is safe from them
   const [platform, setPlatform] = useState<Platform>('instagram')
   const latest = useRef<{ id: string; data: BrandKitData; pending: boolean } | null>(null)
-  const fileRef = useRef<HTMLInputElement>(null)
   const [step, setStep] = useState<StepId>('basics')
   useEffect(() => { loadVideoFonts() }, [])
 
@@ -548,58 +684,23 @@ export function BrandKitStudio({ brand, onKitId, onTurnOn, onTurnOff, onClose }:
         {!brand.loading && !brand.error && (
           <p className="text-xs max-w-xs" style={{ color: 'rgb(var(--ed-fg) / 0.55)' }}>Make one with &ldquo;New brand kit&rdquo; on the left: your colours, logo, @handle and title style, ready for every clip.</p>
         )}
-        <button type="button" onClick={onClose} className="text-xs font-semibold hover:underline" style={{ color: 'var(--ed-accent-text)' }}>Back to the video</button>
+        <button type="button" onClick={onClose} className="text-xs font-semibold hover:underline" style={{ color: 'var(--ed-accent-text)' }}>{closeLabel}</button>
       </div>
     )
   }
-  const d = kit.data
+  const d = withNewFields(kit.data)
   // Each change builds on the one before it, even two in a row before the screen updates (picking a
   // caption style sets the style, then its capitals): the second would otherwise undo the first
   latest.current = latest.current && latest.current.id === kit.id && latest.current.pending ? latest.current : { id: kit.id, data: d, pending: false }
-  const set = (data: BrandKitData) => {
+  const set = (data: BrandKitData, extra: { name?: string; logo_url?: string | null } = {}) => {
     latest.current = { id: kit.id, data, pending: true }
     queueMicrotask(() => { if (latest.current) latest.current.pending = false })
-    brand.update(kit.id, { data })
+    brand.update(kit.id, { data, ...extra })
   }
-  const now = () => (latest.current?.id === kit.id ? latest.current.data : d)
+  const now = () => (latest.current?.id === kit.id ? withNewFields(latest.current.data) : d)
   const setCaptions = (c: Partial<BrandCaptions>) => { const cur = now(); set({ ...cur, captions: { ...cur.captions, ...c } }) }
   // A kit someone shared with this user: shown, not changed
   const readOnly = !!kit.shared_by
-
-  /** The kit filled from a link: its logo, colours, and the name, @handle and card title where they're still empty */
-  async function fillFromLink(url: string): Promise<string> {
-    const b = await brand.fromLink(url)
-    const cur = now()
-    const ratio = b.logo ? b.logo.ratio ?? (b.logo.url ? await urlRatio(b.logo.url) : null) ?? 1 : null
-    const data: BrandKitData = {
-      ...cur,
-      handle: cur.handle || b.handle || '',
-      card_title: cur.card_title || b.name || '',
-      colors: b.colors ? { ...cur.colors, main: b.colors.main, accent: b.colors.accent ?? cur.colors.accent } : cur.colors,
-      logo: b.logo ? { ...cur.logo, path: b.logo.path, ratio } : cur.logo,
-    }
-    latest.current = { id: kit!.id, data, pending: true }
-    queueMicrotask(() => { if (latest.current) latest.current.pending = false })
-    const rename = b.name && /^Brand kit( \d+)?$/.test(kit!.name.trim()) ? { name: b.name } : {}
-    brand.update(kit!.id, { data, ...rename, ...(b.logo ? { logo_url: b.logo.url } : {}) })
-    const got = [b.logo && 'logo', b.colors && 'colours', b.name && 'name', b.handle && '@handle'].filter(Boolean)
-    return got.length ? `From ${b.source}: ${got.join(', ')} — check them below` : `Nothing to use was found on ${b.source} — fill the kit in by hand`
-  }
-
-  async function pickLogo(file: File | undefined) {
-    if (!file || !kit) return
-    setUploading(true); setLogoError(null)
-    try {
-      const up = await brand.uploadLogo(file)
-      // (shown straight away from the link the upload gave)
-      brand.update(kit.id, { data: { ...kit.data, logo: { ...kit.data.logo, path: up.path, ratio: up.ratio } }, logo_url: up.url })
-    } catch (e) {
-      setLogoError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setUploading(false)
-      if (fileRef.current) fileRef.current.value = ''
-    }
-  }
 
   const steps = STEPS.filter(x => x.id !== 'team' || !readOnly)
   const at = Math.max(0, steps.findIndex(x => x.id === step))
@@ -615,10 +716,10 @@ export function BrandKitStudio({ brand, onKitId, onTurnOn, onTurnOff, onClose }:
         {readOnly
           ? <span className="text-[11px] shrink-0" style={{ color: 'rgb(var(--ed-fg) / 0.5)' }}>Shared by {kit.shared_by}{d.lock ? ' · brand lock' : ''}</span>
           : <span role="status" className="text-[11px] shrink-0" style={{ color: brand.saveState === 'error' ? '#fca5a5' : 'rgb(var(--ed-fg) / 0.45)' }}>
-            {brand.saveState === 'saving' ? 'Saving…' : brand.saveState === 'error' ? 'Not saved — check your connection' : 'Saved'}
+            {saveLabel(brand)}
           </span>}
-        <div className="shrink-0"><BrandOnSwitch kit={kit} onKitId={onKitId} onTurnOn={onTurnOn} onTurnOff={onTurnOff} compact /></div>
-        <button type="button" onClick={onClose} aria-label="Back to the video" title="Back to the video"
+        {onTurnOn && onTurnOff && <div className="shrink-0"><BrandOnSwitch kit={kit} onKitId={onKitId} onTurnOn={onTurnOn} onTurnOff={onTurnOff} compact /></div>}
+        <button type="button" onClick={onClose} aria-label={closeLabel} title={closeLabel}
           className="w-8 h-8 flex items-center justify-center rounded-lg shrink-0 transition-colors hover:bg-[rgb(var(--ed-fg)/0.1)]" style={{ color: 'rgb(var(--ed-fg) / 0.6)' }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
         </button>
@@ -654,7 +755,7 @@ export function BrandKitStudio({ brand, onKitId, onTurnOn, onTurnOff, onClose }:
             </div>
             {readOnly && (
               <p className="text-xs leading-relaxed p-3 rounded-lg" style={{ background: 'rgba(200,255,0,0.08)', color: 'rgb(var(--ed-fg) / 0.75)' }}>
-                {kit.shared_by} shared this kit with you: switch it on for your clips. Only they can change it.
+                {kit.shared_by} shared this kit with you: {onTurnOn ? 'switch it on for your clips' : 'pick it for a clip in the editor'}. Only they can change it.
                 {d.lock && ' Brand lock is on: your colour and font choices are its colours and fonts.'}
               </p>
             )}
@@ -662,34 +763,12 @@ export function BrandKitStudio({ brand, onKitId, onTurnOn, onTurnOff, onClose }:
             {cur.id === 'basics' && (
               <>
                 {!readOnly && (
-                  <Section title="Fill from a link">
-                    <LinkFill onFill={fillFromLink} />
+                  <Section title="Start from">
+                    <BrandStart compact kit={kit} brand={brand} now={now} set={set} onFound={setFound} />
                   </Section>
                 )}
-                <Section title="Logo">
-                  <div className="flex items-center gap-3">
-                    <div className="w-20 h-20 rounded-xl flex items-center justify-center overflow-hidden shrink-0"
-                      style={{ background: 'repeating-conic-gradient(rgb(var(--ed-fg) / 0.08) 0 25%, transparent 0 50%) 0 0 / 14px 14px', boxShadow: 'inset 0 0 0 1px rgb(var(--ed-fg) / 0.12)' }}>
-                      {d.logo.path && kit.logo_url
-                        // eslint-disable-next-line @next/next/no-img-element
-                        ? <img src={kit.logo_url} alt="Your logo" className="max-w-[85%] max-h-[85%] object-contain" />
-                        : <span className="text-[11px]" style={{ color: 'rgb(var(--ed-fg) / 0.4)' }}>No logo</span>}
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={e => pickLogo(e.target.files?.[0])} />
-                      <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}
-                        className="h-8 px-3 rounded-lg text-xs font-semibold disabled:opacity-50"
-                        style={{ color: 'var(--ed-text)', background: 'rgb(var(--ed-fg) / 0.08)', boxShadow: 'inset 0 0 0 1px rgb(var(--ed-fg) / 0.12)' }}>
-                        {uploading ? 'Uploading…' : d.logo.path ? 'Change logo' : 'Upload logo'}
-                      </button>
-                      {d.logo.path && (
-                        <button type="button" onClick={() => set({ ...now(), logo: { ...now().logo, path: null, ratio: null } })}
-                          className="self-start text-[11px] hover:underline" style={{ color: 'rgb(var(--ed-fg) / 0.5)' }}>Remove logo</button>
-                      )}
-                      <span className="text-[11px]" style={{ color: 'rgb(var(--ed-fg) / 0.45)' }}>PNG with a see-through background works best · up to 5 MB</span>
-                    </div>
-                  </div>
-                  {logoError && <p role="alert" className="text-[11px]" style={{ color: '#fca5a5' }}>{logoError}</p>}
+                <BrandCard kit={kit} brand={brand} now={now} set={set} found={found} readOnly={readOnly} />
+                <Section title="Logo on the clip">
                   <div className="cap-row">
                     <span className="flex flex-col min-w-0">
                       <span className="cap-label">Place</span>
@@ -699,6 +778,22 @@ export function BrandKitStudio({ brand, onKitId, onTurnOn, onTurnOff, onClose }:
                     </span>
                     <CornerSwitch value={d.logo.x !== null ? null : d.logo.corner} onChange={corner => set({ ...now(), logo: { ...now().logo, corner, x: null, y: null } })} />
                   </div>
+                  <label className="cap-row cursor-pointer select-none">
+                    <span className="flex flex-col min-w-0">
+                      <span className="cap-label">Keep clear of app buttons</span>
+                      <span className="text-[11px]" style={{ color: 'rgb(var(--ed-fg) / 0.45)' }}>Away from the header, likes and caption Reels and Shorts put on top</span>
+                    </span>
+                    <Switch on={d.logo.safe} label="Keep clear of app buttons" onChange={safe => set({ ...now(), logo: { ...now().logo, safe } })} />
+                  </label>
+                  <label className="cap-row cursor-pointer select-none">
+                    <span className="flex flex-col min-w-0">
+                      <span className="cap-label">Move off faces and captions</span>
+                      <span className="text-[11px]" style={{ color: 'rgb(var(--ed-fg) / 0.45)' }}>
+                        {d.logo.x !== null ? 'Placed by hand: it stays where you put it' : 'On each clip, the clearest corner — yours first'}
+                      </span>
+                    </span>
+                    <Switch on={d.logo.smart} label="Move off faces and captions" onChange={smart => set({ ...now(), logo: { ...now().logo, smart } })} />
+                  </label>
                   <div className="cap-row">
                     <span className="cap-label">Shows</span>
                     <div role="radiogroup" aria-label="When the logo shows" className="cap-seg">
@@ -716,21 +811,19 @@ export function BrandKitStudio({ brand, onKitId, onTurnOn, onTurnOff, onClose }:
                     onChange={size => set({ ...now(), logo: { ...now().logo, size } })} />
                   <RangeRow label="Opacity" min={0.1} max={1} step={0.05} value={d.logo.opacity} text={`${Math.round(d.logo.opacity * 100)}%`}
                     onChange={opacity => set({ ...now(), logo: { ...now().logo, opacity } })} />
+                  <div className="cap-row">
+                    <span className="flex flex-col min-w-0">
+                      <span className="cap-label">Watermark</span>
+                      <span className="text-[11px]" style={{ color: 'rgb(var(--ed-fg) / 0.45)' }}>Small and faint, on the whole clip</span>
+                    </span>
+                    {isWatermark(d.logo)
+                      ? <span className="text-xs" style={{ color: 'rgb(var(--ed-fg) / 0.6)' }}>It’s a watermark</span>
+                      : <button type="button" className="text-xs font-semibold hover:underline" style={{ color: 'var(--ed-accent-text)' }}
+                          onClick={() => set({ ...now(), logo: { ...now().logo, ...WATERMARK } })}>Make it a watermark</button>}
+                  </div>
                 </Section>
-                <Section title="Colours">
-                  <ColorRow label="Main colour" hint="Branded card background and frame bands" value={d.colors.main} onChange={main => set({ ...now(), colors: { ...now().colors, main } })} />
-                  <ColorRow label="Accent colour" hint="Your @handle on the Branded card" value={d.colors.accent} onChange={accent => set({ ...now(), colors: { ...now().colors, accent } })} />
-                  <ExtraColors value={d.colors.extra} onChange={extra => set({ ...now(), colors: { ...now().colors, extra } })} />
-                  <p className="text-[11px] -mt-1" style={{ color: 'rgb(var(--ed-fg) / 0.45)' }}>
-                    All your brand colours show first in the editor&rsquo;s colour choices — text, captions and frames.
-                  </p>
-                </Section>
-                <Section title="@handle">
-                  <label className="flex items-center gap-1 h-9 px-3 rounded-lg" style={{ background: 'rgb(var(--ed-fg) / 0.06)', boxShadow: 'inset 0 0 0 1px rgb(var(--ed-fg) / 0.1)' }}>
-                    <span className="text-sm font-semibold" style={{ color: 'rgb(var(--ed-fg) / 0.45)' }}>@</span>
-                    <input value={d.handle} onChange={e => set({ ...now(), handle: e.target.value.replace(/^@+/, '').replace(/\s+/g, '') })} maxLength={40}
-                      placeholder="yourchannel" aria-label="Your @handle" className="flex-1 min-w-0 bg-transparent text-sm text-[var(--ed-text)] outline-none" />
-                  </label>
+                <Section title="Progress bar">
+                  <KitProgressBar d={d} onChange={progress_bar => set({ ...now(), progress_bar })} />
                 </Section>
                 {!readOnly && (
                   <Section title="New clips">
@@ -743,12 +836,21 @@ export function BrandKitStudio({ brand, onKitId, onTurnOn, onTurnOff, onClose }:
               <>
                 <Section title="Title style">
                   <p className="text-[11px] -mt-1" style={{ color: 'rgb(var(--ed-fg) / 0.5)' }}>
-                    For text on the clip. Frame titles take this colour and keep the frame&rsquo;s own font.
+                    For text on the clip, frame titles and the Branded card: new text starts in it.
                   </p>
                   <FontPicker value={d.title.font} onChange={font => set({ ...now(), title: { ...now().title, font: font === 'sans-serif' ? null : font } })} />
                   <ColorRow label="Colour" value={d.title.color} onChange={color => set({ ...now(), title: { ...now().title, color } })} />
                   <RangeRow label="Size" min={24} max={160} step={2} value={d.title.size} text={`${d.title.size}`}
                     onChange={size => set({ ...now(), title: { ...now().title, size } })} />
+                </Section>
+                {/* (brand kit Phase 3) the other ready styles: "+ Subtitle" and "+ Call to action" in the editor's Text tool */}
+                <Section title="Subtitle style">
+                  <TextStyleEditor kind="subtitle" d={d} value={d.styles?.subtitle ?? DEFAULT_BRAND_KIT.styles.subtitle}
+                    onChange={v => set({ ...now(), styles: { ...DEFAULT_BRAND_KIT.styles, ...now().styles, subtitle: v } })} />
+                </Section>
+                <Section title="Call to action style">
+                  <TextStyleEditor kind="cta" d={d} value={d.styles?.cta ?? DEFAULT_BRAND_KIT.styles.cta}
+                    onChange={v => set({ ...now(), styles: { ...DEFAULT_BRAND_KIT.styles, ...now().styles, cta: v } })} />
                 </Section>
                 <Section title="Fonts">
                   <BrandFonts fonts={d.fonts} onChange={fonts => set({ ...now(), fonts })} />
@@ -792,6 +894,10 @@ export function BrandKitStudio({ brand, onKitId, onTurnOn, onTurnOff, onClose }:
                     </div>
                   )}
                 </Section>
+                {/* (brand kit Phase 3) more looks, switched to in one tap in the editor's Captions tool */}
+                <Section title="More caption looks">
+                  <MoreCaptionLooks d={d} onChange={more_captions => set({ ...now(), more_captions })} />
+                </Section>
               </>
             )}
             {cur.id === 'card' && (
@@ -806,6 +912,24 @@ export function BrandKitStudio({ brand, onKitId, onTurnOn, onTurnOff, onClose }:
                     style={{ background: 'rgb(var(--ed-fg) / 0.06)', boxShadow: 'inset 0 0 0 1px rgb(var(--ed-fg) / 0.1)' }} />
                   <CardFields value={d.card} onChange={card => set({ ...now(), card })} />
                 </Section>
+                <Section title="End card">
+                  <label className="cap-row cursor-pointer select-none">
+                    <span className="flex flex-col min-w-0">
+                      <span className="cap-label">End clips on this card</span>
+                      <span className="text-[11px]" style={{ color: 'rgb(var(--ed-fg) / 0.45)' }}>The last seconds become this card, the video still playing in it</span>
+                    </span>
+                    <Switch on={d.ends.card} label="End clips on the Branded card" onChange={card => set({ ...now(), ends: { ...now().ends, card } })} />
+                  </label>
+                  {d.ends.card && (
+                    <RangeRow label="For" min={END_CARD_SECONDS[0]} max={END_CARD_SECONDS[1]} step={1} value={d.ends.seconds} text={`${d.ends.seconds} s`}
+                      onChange={seconds => set({ ...now(), ends: { ...now().ends, seconds } })} />
+                  )}
+                </Section>
+                {!readOnly && (
+                  <Section title="Intro and outro">
+                    <KitBookends d={d} onChange={ends => set({ ...now(), ends: { ...now().ends, ...ends } })} />
+                  </Section>
+                )}
               </>
             )}
             {cur.id === 'team' && !readOnly && (
@@ -867,7 +991,7 @@ const MOCK_W = 200, MOCK_H = (MOCK_W * 16) / 9, K = MOCK_W / 1080
 /** Frame text is drawn in Montserrat Bold (render.py _frame_text_font) */
 const FRAME_FONT = 'Montserrat, sans-serif'
 
-function Mock({ label, children }: { label: string; children: React.ReactNode }) {
+export function Mock({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <figure className="flex flex-col gap-2 m-0">
       <figcaption className="cap-heading">{label}</figcaption>
@@ -883,8 +1007,8 @@ function Mock({ label, children }: { label: string; children: React.ReactNode })
  * caption line in the kit's caption style. The logo can be dragged anywhere (onPlace: its new
  * top-left, shares of the frame); the app's buttons can be laid over it.
  */
-function ClipMock({ kit, platform = 'off', onPlace }: { kit: BrandKit; platform?: Platform; onPlace?: (x: number, y: number) => void }) {
-  const d = kit.data, box = logoBox(d.logo)
+export function ClipMock({ kit, platform = 'off', onPlace }: { kit: BrandKit; platform?: Platform; onPlace?: (x: number, y: number) => void }) {
+  const d = withNewFields(kit.data), box = logoBox(d.logo)
   const [drag, setDrag] = useState<{ x: number; y: number } | null>(null)
   const shown = drag ?? { x: box.x, y: box.y }
   function down(e: React.PointerEvent<HTMLImageElement>) {
@@ -916,6 +1040,7 @@ function ClipMock({ kit, platform = 'off', onPlace }: { kit: BrandKit; platform?
         Your text here
       </div>
       {d.captions.on && <CaptionSample c={d.captions} />}
+      {d.progress_bar.on && <KitBarSample d={d} />}
       {platform !== 'off' && <div className="absolute inset-0 pointer-events-none"><PlatformOverlay platform={platform} /></div>}
       {d.logo.path && kit.logo_url && (
         // eslint-disable-next-line @next/next/no-img-element
@@ -924,6 +1049,16 @@ function ClipMock({ kit, platform = 'off', onPlace }: { kit: BrandKit; platform?
           className="absolute select-none"
           style={{ left: `${shown.x * 100}%`, top: `${shown.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%`, opacity: d.logo.opacity, objectFit: 'fill', cursor: onPlace ? (drag ? 'grabbing' : 'grab') : undefined, touchAction: 'none', outline: drag ? '1.5px dashed #c8ff00' : undefined }} />
       )}
+    </div>
+  )
+}
+
+/** The kit's progress bar on the preview, part filled, at its thickness on a 1080 × 1920 frame */
+function KitBarSample({ d }: { d: BrandKitData }) {
+  const bar = brandProgressBar(d)!
+  return (
+    <div className="absolute inset-x-0 pointer-events-none" style={{ [bar.position]: 0, height: `${(bar.height / 1920) * 100}%`, minHeight: 2 }}>
+      <div style={{ width: '60%', height: '100%', background: bar.color }} />
     </div>
   )
 }
@@ -963,7 +1098,7 @@ function PlatformSwitch({ value, onChange }: { value: Platform; onChange: (p: Pl
 }
 
 /** A caption style change from the Captions panel, as the kit keeps it */
-function captionPatch(u: Partial<import('@/lib/shared/types').CaptionStyle>): Partial<BrandCaptions> {
+export function captionPatch(u: Partial<import('@/lib/shared/types').CaptionStyle>): Partial<BrandCaptions> {
   const out: Partial<BrandCaptions> = {}
   if ('template' in u) out.template = u.template ?? null
   if (u.animation) out.animation = u.animation
@@ -990,7 +1125,7 @@ function DefaultSwitch({ kit, compact = false, onChange }: { kit: BrandKit; comp
   )
 }
 
-function Switch({ on, label, onChange }: { on: boolean; label: string; onChange: (on: boolean) => void }) {
+export function Switch({ on, label, onChange }: { on: boolean; label: string; onChange: (on: boolean) => void }) {
   return (
     <button type="button" role="switch" aria-checked={on} aria-label={label} onClick={e => { e.preventDefault(); onChange(!on) }}
       className="relative shrink-0 rounded-full transition-colors" style={{ width: 34, height: 19, background: on ? '#c8ff00' : 'rgb(var(--ed-fg) / 0.18)' }}>
@@ -1074,32 +1209,6 @@ function TextRow({ label, placeholder, value, max, onChange, commitOnBlur = fals
   )
 }
 
-/** Up to MAX_EXTRA_COLORS more brand colours: each one changed, removed, or one added */
-function ExtraColors({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
-  return (
-    <div className="cap-row">
-      <span className="flex flex-col min-w-0">
-        <span className="cap-label">More colours</span>
-        <span className="text-[11px]" style={{ color: 'rgb(var(--ed-fg) / 0.45)' }}>Up to {MAX_EXTRA_COLORS}</span>
-      </span>
-      <span className="flex items-center gap-2 shrink-0">
-        {value.map((c, i) => (
-          <span key={i} className="relative group">
-            <input type="color" value={c} aria-label={`Brand colour ${i + 3}`} onChange={e => onChange(value.map((x, j) => (j === i ? e.target.value.toLowerCase() : x)))}
-              className="w-8 h-8 rounded-md cursor-pointer bg-transparent" style={{ border: 'none', padding: 0 }} />
-            <button type="button" aria-label={`Remove brand colour ${i + 3}`} onClick={() => onChange(value.filter((_, j) => j !== i))}
-              className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full text-[10px] leading-none opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-              style={{ background: '#111', color: '#fff', boxShadow: '0 0 0 1px rgb(var(--ed-fg) / 0.3)' }}>×</button>
-          </span>
-        ))}
-        {value.length < MAX_EXTRA_COLORS && (
-          <button type="button" onClick={() => onChange([...value, '#ffffff'])} aria-label="Add a brand colour"
-            className="w-8 h-8 rounded-md text-base font-semibold" style={{ color: 'rgb(var(--ed-fg) / 0.6)', boxShadow: 'inset 0 0 0 1.5px rgb(var(--ed-fg) / 0.2)' }}>+</button>
-        )}
-      </span>
-    </div>
-  )
-}
 
 /** The Branded card as it starts: the video as a rounded card on the main colour, the title above, the @handle below */
 /** The Branded card as the editor and the export draw it (lib/shared/brandCard.ts): its background, video, title and @handle */
@@ -1121,12 +1230,12 @@ function CardMock({ kit }: { kit: BrandKit }) {
       <canvas ref={bgRef} className="absolute inset-0 w-full h-full" />
       <div className="absolute" style={{ ...box(places.video), borderRadius: (places.video.radius ?? 0) * K, background: 'linear-gradient(160deg, #3a4150 0%, #1d2129 60%, #2c2a24 100%)' }} />
       {c.title.show && (
-        <div className="absolute flex items-center justify-center text-center px-2" style={{ ...box(places.title), fontFamily: FRAME_FONT, fontWeight: 700, fontSize: c.title.size * K, color: c.title.color, lineHeight: 1.1 }}>
+        <div className="absolute flex items-center justify-center text-center px-2" style={{ ...box(places.title), fontFamily: d.title.font ? `"${d.title.font}", ${FRAME_FONT}` : FRAME_FONT, fontWeight: 700, fontSize: c.title.size * K, color: c.title.color, lineHeight: 1.1 }}>
           {d.card_title || kit.name}
         </div>
       )}
       {c.handle.show && (
-        <div className="absolute flex items-center justify-center" style={{ ...box(places.handle), fontFamily: FRAME_FONT, fontWeight: 700, fontSize: c.handle.size * K, color: c.handle.color }}>
+        <div className="absolute flex items-center justify-center" style={{ ...box(places.handle), fontFamily: d.title.font ? `"${d.title.font}", ${FRAME_FONT}` : FRAME_FONT, fontWeight: 700, fontSize: c.handle.size * K, color: c.handle.color }}>
           {showHandle(d.handle) || '@yourchannel'}
         </div>
       )}
@@ -1203,7 +1312,7 @@ function CardFields({ value: c, onChange }: { value: BrandCardSettings; onChange
   )
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+export function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="flex flex-col gap-3 p-4 rounded-2xl" style={{ background: 'rgb(var(--ed-fg) / 0.03)', boxShadow: 'inset 0 0 0 1px rgb(var(--ed-fg) / 0.08)' }}>
       <h3 className="cap-heading">{title}</h3>
@@ -1212,7 +1321,90 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
-function ColorRow({ label, hint, value, onChange }: { label: string; hint?: string; value: string; onChange: (v: string) => void }) {
+/**
+ * A kit's subtitle or call-to-action style (brand kit Phase 3): its font ("Same as title" when it has
+ * none of its own), colour, size, a background box (a call to action's is the accent colour until
+ * one is picked), capitals — and how it looks
+ */
+function TextStyleEditor({ kind, d, value, onChange }: { kind: 'subtitle' | 'cta'; d: BrandKitData; value: BrandTextStyle; onChange: (v: BrandTextStyle) => void }) {
+  const shown = brandTextStyle(d, kind)
+  const boxOn = value.bg !== null
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="bts-sample" style={{
+        fontFamily: shown.font ? `"${shown.font}", sans-serif` : undefined, color: shown.color, background: shown.bg ?? 'transparent',
+        textTransform: shown.uppercase ? 'uppercase' : undefined, fontSize: Math.max(14, Math.min(26, shown.size / 2.6)),
+      }}>{kind === 'cta' ? 'Follow for more' : 'Your subtitle here'}</div>
+      <label className="cap-row cursor-pointer select-none">
+        <span className="cap-label">Same font as the title</span>
+        <Switch on={value.font === null} label="Same font as the title" onChange={on => onChange({ ...value, font: on ? null : d.title.font ?? 'Inter' })} />
+      </label>
+      {value.font !== null && <FontPicker value={value.font} onChange={font => onChange({ ...value, font: font === 'sans-serif' ? 'Inter' : font })} />}
+      <ColorRow label="Colour" value={value.color} onChange={color => onChange({ ...value, color })} />
+      <RangeRow label="Size" min={20} max={120} step={2} value={value.size} text={`${value.size}`} onChange={size => onChange({ ...value, size })} />
+      <label className="cap-row cursor-pointer select-none">
+        <span className="flex flex-col min-w-0">
+          <span className="cap-label">Box behind it</span>
+          {value.bg === 'accent' && <span className="text-[11px]" style={{ color: 'rgb(var(--ed-fg) / 0.45)' }}>Your accent colour</span>}
+        </span>
+        <Switch on={boxOn} label="Box behind it" onChange={on => onChange({ ...value, bg: on ? 'accent' : null })} />
+      </label>
+      {boxOn && <ColorRow label="Box colour" value={shown.bg ?? d.colors.accent} onChange={bg => onChange({ ...value, bg })} />}
+      <label className="cap-row cursor-pointer select-none">
+        <span className="cap-label">Capitals</span>
+        <Switch on={value.uppercase} label="Capitals" onChange={uppercase => onChange({ ...value, uppercase })} />
+      </label>
+    </div>
+  )
+}
+
+/**
+ * A kit's caption looks besides its main one (brand kit Phase 3, up to MAX_MORE_CAPTIONS): each named
+ * ("Bold for hooks"), changed with the editor's own caption choices, or removed; a new one starts as
+ * a copy of the main look
+ */
+function MoreCaptionLooks({ d, onChange }: { d: BrandKitData; onChange: (v: BrandCaptionLook[]) => void }) {
+  const [open, setOpen] = useState<string | null>(null)
+  const looks = d.more_captions ?? []
+  const put = (id: string, patch: Partial<BrandCaptionLook>) => onChange(looks.map(l => (l.id === id ? { ...l, ...patch } : l)))
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-[11px] -mt-1" style={{ color: 'rgb(var(--ed-fg) / 0.5)' }}>
+        Keep a few looks (one for hooks, one for talking) and switch any clip&rsquo;s captions in one tap in the editor.
+      </p>
+      {looks.map(l => (
+        <div key={l.id} className="mcl-row">
+          <div className="flex items-center gap-2">
+            <i className="mcl-dot" style={{ background: l.captions.color }} /><i className="mcl-dot" style={{ background: l.captions.highlight_color }} />
+            <input value={l.name} maxLength={30} onChange={e => put(l.id, { name: e.target.value })} aria-label="Look name"
+              onBlur={e => { if (!e.target.value.trim()) put(l.id, { name: 'Look' }) }}
+              className="flex-1 min-w-0 h-8 px-2 rounded-md text-xs text-[var(--ed-text)] outline-none" style={{ background: 'rgb(var(--ed-fg) / 0.06)' }} />
+            <button type="button" className="mcl-btn" onClick={() => setOpen(o => (o === l.id ? null : l.id))} aria-expanded={open === l.id}>{open === l.id ? 'Done' : 'Edit'}</button>
+            <button type="button" className="mcl-btn" onClick={() => onChange(looks.filter(x => x.id !== l.id))} aria-label={`Remove ${l.name}`}>Remove</button>
+          </div>
+          {open === l.id && (
+            <div className="-mx-3 -mb-3 mt-2">
+              <CaptionStyler
+                style={brandCaptionStyle(l.captions)} textCase={l.captions.uppercase ? 'upper' : 'title'}
+                onChange={u => put(l.id, { captions: { ...l.captions, ...captionPatch(u), on: true } })}
+                onTextCaseChange={(c: TextCase) => put(l.id, { captions: { ...l.captions, uppercase: c === 'upper' } })}
+                onEditCaptions={() => {}} onRetranscribe={() => {}} retranscribing={false} hasWords={false} />
+            </div>
+          )}
+        </div>
+      ))}
+      {looks.length < MAX_MORE_CAPTIONS && (
+        <button type="button" className="mcl-add" onClick={() => {
+          const id = `look-${Date.now().toString(36)}`
+          onChange([...looks, { id, name: `Look ${looks.length + 2}`, captions: { ...d.captions, on: true } }])
+          setOpen(id)
+        }}>+ Add a look</button>
+      )}
+    </div>
+  )
+}
+
+export function ColorRow({ label, hint, value, onChange }: { label: string; hint?: string; value: string; onChange: (v: string) => void }) {
   const [draft, setDraft] = useState(value)
   useEffect(() => { setDraft(value) }, [value])
   return (
