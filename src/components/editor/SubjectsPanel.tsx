@@ -39,7 +39,8 @@ export interface AngleItem {
   people: number
   /** A moment that shows it (the video's own time, ms): its picture, and the faces there, left to right */
   at: number
-  faces: Array<{ box: { x: number; y: number; w: number; h: number }; subject: { label: string; color: string } | null }>
+  /** `added`: marked by hand (+ Add) and found here; `pending`: marked by hand here, being looked for */
+  faces: Array<{ box: { x: number; y: number; w: number; h: number }; subject: { label: string; color: string } | null; added?: boolean; pending?: boolean }>
   /** Where the clip shows it (each a stretch of the timeline), and for how long in all */
   shown: unknown[]
   totalMs: number
@@ -91,6 +92,9 @@ interface Props {
   onAutoFormat: () => void
   /** Where Auto format is: waiting for its scan, or laying the formats out */
   autoPhase: 'idle' | 'detecting' | 'formatting'
+  /** How Auto format lays the scenes: 'vertical' — every scene Vertical, on whoever talks; 'cuts' — the Rulebook's formats, everyone in */
+  autoMode: 'vertical' | 'cuts'
+  onAutoMode: (mode: 'vertical' | 'cuts') => void
   /** Stop whatever runs: Auto format, the scan, the following */
   onStop: () => void
   onRemove: (id: string) => void
@@ -112,6 +116,9 @@ export function SubjectsPanel(p: Props) {
   const [renaming, setRenaming] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [groupOpen, setGroupOpen] = useState(false)
+  // Mark as group just pressed: it says so for a moment (✓ Marked), so the press is seen
+  const [marked, setMarked] = useState(false)
+  useEffect(() => { if (!marked) return; const id = setTimeout(() => setMarked(false), 1400); return () => clearTimeout(id) }, [marked])
   const busy = p.subjects.some(s => s.status === 'queued' || s.status === 'running')
   /** Marked but not looked for yet (or the last try failed): Follow takes them */
   const waiting = p.subjects.filter(s => s.status === 'new' || s.status === 'failed').length
@@ -198,7 +205,9 @@ export function SubjectsPanel(p: Props) {
               <span className="truncate">{scanning ? 'Detecting…' : detected ? 'Detect again' : 'Detect'}</span>
             </button>
             <button type="button" onClick={p.onAutoFormat} disabled={working}
-              title="Detects the scenes if needed, then gives every scene its format from who is in it (1 person: Vertical, 2: Split, 3: Trio, more: Split by halves), marks everyone and follows them. Scenes you formatted yourself stay as they are."
+              title={p.autoMode === 'vertical'
+                ? 'Detects the scenes if needed, then makes every scene Vertical on whoever is talking — the view cuts to each speaker — marks everyone and follows them. Scenes you formatted yourself stay as they are.'
+                : 'Detects the scenes if needed, then gives every scene its format from who is in it and where they sit (Vertical, Split, Trio, or the whole picture — nobody left out), marks everyone and follows them. Scenes you formatted yourself stay as they are.'}
               className="flex-1 min-w-0 h-11 flex items-center justify-center gap-2 rounded-xl text-[12.5px] font-bold transition-opacity hover:opacity-90 disabled:cursor-default"
               style={{ background: '#c8ff00', color: '#000', opacity: working && p.autoPhase === 'idle' ? 0.5 : 1 }}>
               {p.autoPhase !== 'idle'
@@ -215,6 +224,24 @@ export function SubjectsPanel(p: Props) {
                 Stop
               </button>
             )}
+          </div>
+        )}
+        {/* How Auto format lays the scenes (user, 2026-10-28): Vertical — the speaker first; Cuts — the Rulebook's formats */}
+        {canAct && (
+          <div className="-mt-2 flex items-center gap-2">
+            <span className="text-[11px]" style={{ color: muted }}>Auto format as</span>
+            <div role="radiogroup" aria-label="Auto format as" className="flex p-0.5 rounded-lg" style={{ background: 'rgb(var(--ed-fg) / 0.07)' }}>
+              {(['vertical', 'cuts'] as const).map(m => (
+                <button key={m} type="button" role="radio" aria-checked={p.autoMode === m} disabled={working} onClick={() => p.onAutoMode(m)}
+                  title={m === 'vertical'
+                    ? 'Every scene Vertical, on whoever is talking: the view cuts to each speaker, at least 2 seconds on each. Listeners can be out of the picture.'
+                    : 'Each scene gets its format from who is in it (Vertical, Split, Trio, or the whole picture), with everyone kept in.'}
+                  className="h-6 px-2.5 rounded-md text-[11px] font-semibold transition-colors disabled:cursor-default disabled:opacity-60"
+                  style={p.autoMode === m ? { background: '#c8ff00', color: '#000' } : { color: 'rgb(var(--ed-fg) / 0.7)' }}>
+                  {m === 'vertical' ? 'Vertical' : 'Cuts'}
+                </button>
+              ))}
+            </div>
           </div>
         )}
         {p.angles.status === 'done' && p.angles.stale && !working && (
@@ -249,7 +276,7 @@ export function SubjectsPanel(p: Props) {
               </div>
             )}
             {heading(`Scene ${curNo} · ${cur.people === 1 ? '1 person' : `${cur.people} people`}`)}
-            <div className="flex flex-col gap-3 rounded-xl p-3.5"
+            <div className="flex flex-col gap-3.5 rounded-2xl px-4 py-5"
               style={{ background: 'rgb(var(--ed-fg) / 0.035)', boxShadow: cur.set ? 'inset 0 0 0 1.5px rgba(200,255,0,0.45)' : 'inset 0 0 0 1px rgb(var(--ed-fg) / 0.07)' }}>
               {cur.people >= 2 ? (
                 // Several people together are one group: one card, one button (the layout and views are the ones on screen)
@@ -258,7 +285,20 @@ export function SubjectsPanel(p: Props) {
                     <div className="flex items-center">
                       {cur.faces.map((f, k) => <FaceDot key={`${curAt}-${k}`} videoUrl={p.videoUrl} at={cur.at} box={f.box} first={k === 0} />)}
                     </div>
-                    <span className="text-[13px] font-semibold text-[var(--ed-text)]">Group of {cur.people}</span>
+                    <span className="text-[14.5px] font-semibold text-[var(--ed-text)]">{cur.people} angles</span>
+                    {/* Mark as group: small, at the card's top right (user, 2026-10-30) */}
+                    {!cur.group && (
+                      <button type="button" onClick={() => { p.onMarkShot(); setMarked(true) }} data-marked={marked || undefined}
+                        title="Set this scene's layout and views first (say Split), then mark it. Every time the clip shows this shot again, it gets the same."
+                        className="sp-mark ml-auto shrink-0 h-8 px-3 flex items-center gap-1.5 rounded-lg text-[12px] font-bold whitespace-nowrap transition-colors hover:bg-[rgba(200,255,0,0.2)] active:scale-95"
+                        style={cur.formatted
+                          ? { background: 'rgb(var(--ed-fg) / 0.06)', color: 'var(--ed-text)', boxShadow: 'inset 0 0 0 1px rgb(var(--ed-fg) / 0.12)' }
+                          : { background: 'rgba(200,255,0,0.12)', color: 'var(--ed-accent-text)', boxShadow: 'inset 0 0 0 1.5px rgba(200,255,0,0.55)' }}>
+                        {marked
+                          ? <><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="sp-mark-tick"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>Marked</>
+                          : <>{groupIcon(13)}Mark as group</>}
+                      </button>
+                    )}
                   </div>
                   {cur.group ? (
                     <span className="flex items-center gap-1.5 text-[12px] font-semibold" style={{ color: 'var(--ed-accent-text)' }}>
@@ -275,15 +315,6 @@ export function SubjectsPanel(p: Props) {
                           Formatted · {cur.formatted === 'mixed' ? 'by who talks' : LAYOUT_NAMES[cur.formatted] ?? cur.formatted}
                         </span>
                       )}
-                      <button type="button" onClick={p.onMarkShot}
-                        title="Set this scene's layout and views first (say Split), then mark it. Every time the clip shows this shot again, it gets the same."
-                        className="h-9 flex items-center justify-center gap-2 rounded-lg text-[12.5px] font-bold transition-colors hover:bg-[rgba(200,255,0,0.2)]"
-                        style={cur.formatted
-                          ? { background: 'rgb(var(--ed-fg) / 0.06)', color: 'var(--ed-text)', boxShadow: 'inset 0 0 0 1px rgb(var(--ed-fg) / 0.12)' }
-                          : { background: 'rgba(200,255,0,0.12)', color: 'var(--ed-accent-text)', boxShadow: 'inset 0 0 0 1.5px rgba(200,255,0,0.55)' }}>
-                        {groupIcon(15)}
-                        Mark as group
-                      </button>
                     </>
                   )}
                 </>
@@ -462,7 +493,7 @@ function FaceDot({ videoUrl, at, box: b, first }: { videoUrl: string | null; at:
   const x = Math.max(0, b.x - b.w * 0.25), y = Math.max(0, b.y - b.h * 0.3)
   const url = useFaceAt(videoUrl, at, { x, y, w: Math.min(1 - x, b.w * 1.5), h: Math.min(1 - y, b.h * 1.5) })
   return (
-    <span className="w-11 h-11 rounded-full overflow-hidden shrink-0" aria-hidden="true"
+    <span className="w-10 h-10 rounded-full overflow-hidden shrink-0" aria-hidden="true"
       style={{ marginLeft: first ? 0 : -8, background: 'rgb(var(--ed-fg) / 0.1)', boxShadow: '0 0 0 2px #111112' }}>
       {url
         // eslint-disable-next-line @next/next/no-img-element
@@ -491,9 +522,14 @@ function AngleFace({ videoUrl, at, face: f, onMark, saving }: { videoUrl: string
   )
   if (f.subject) {
     return (
-      <span className="flex flex-col items-center gap-1.5 w-14" title={`${f.subject.label} is marked`}>
-        {picture}
-        <span className="max-w-full truncate text-[11px] font-bold" style={{ color: f.subject.color }}>{f.subject.label}</span>
+      <span className="flex flex-col items-center gap-1.5 w-14" aria-busy={f.pending}
+        title={f.pending ? `${f.subject.label} is marked — looking for them in the clip` : f.added ? `${f.subject.label} is marked (added by you)` : `${f.subject.label} is marked`}>
+        <span className="relative rounded-full">
+          {picture}
+          {/* Added by hand, being looked for: a ring turning round them (user, 2026-10-29: + Add showed nothing) */}
+          {f.pending && <span className="absolute -inset-[3px] rounded-full animate-spin motion-reduce:animate-none" style={{ border: '2.5px solid rgba(200,255,0,0.18)', borderTopColor: '#c8ff00' }} />}
+        </span>
+        <span className="max-w-full truncate text-[11px] font-bold" style={{ color: f.subject.color }}>{f.pending ? 'Finding…' : f.subject.label}</span>
       </span>
     )
   }

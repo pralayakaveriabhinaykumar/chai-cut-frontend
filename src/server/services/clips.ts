@@ -3,7 +3,8 @@ import { cleanTrims, trimMap, MAX_CLIP_MS, MIN_CLIP_MS } from '@/lib/trims'
 import { cleanProgressBar } from '@/lib/shared/brandKit'
 import { cleanCardLook, cleanFrameBackground } from '@/lib/shared/brandCard'
 import { cleanBrandOn } from '@/lib/shared/brandOn'
-import type { SegmentLocal, BoxKeyframeLocal, CaptionStyle, TextOverlay, AudioTrack, Transition, Overlay, FrameSettings, FrameItem, CornerStyle } from '@chai-cut/shared'
+import { lockCaption, lockClipLook, lockHolds, lockSetOf } from '@/lib/shared/brandTeam'
+import type { SegmentLocal, BoxKeyframeLocal, CaptionStyle, TextOverlay, AudioTrack, Transition, Overlay, FrameSettings, FrameItem, CornerStyle, BrollAlt, BrollPick } from '@chai-cut/shared'
 import { SPEED_MIN, SPEED_MAX } from '@chai-cut/shared'
 
 interface CreateClipInput {
@@ -70,7 +71,47 @@ interface SaveClipInput {
   layers?: unknown
 }
 
-export async function saveClip(userId: string, clipId: string, body: SaveClipInput) {
+/**
+ * The brand lock (brand kit Phase 6): on a clip with a locked team kit on — shared with the user as
+ * "Can use" — what's saved keeps to the kit's colours and fonts (as the editor shows it: brandTeam.ts
+ * lockClipLook), and the kit isn't taken off or swapped: only its owner, or someone who can edit it, can.
+ * Anyone else's save goes as it is.
+ */
+async function keptToLock(userId: string, clipId: string, body: SaveClipInput): Promise<SaveClipInput> {
+  if (!(await hasColumn('clips', 'brand'))) return body
+  const [row] = await sql<{ kit: string | null }[]>`
+    SELECT c.brand->>'kit_id' AS kit FROM clips c JOIN videos v ON v.id = c.video_id WHERE c.id = ${clipId} AND v.user_id = ${userId}`
+  if (!row) return body
+  const { kitAccess } = await import('./brandKits')
+  const now = body.brand === undefined ? row.kit : (cleanBrandOn(body.brand)?.kit_id ?? null)
+  if (row.kit && row.kit !== now) {
+    const was = await kitAccess(userId, row.kit)
+    if (was && lockHolds(was.data, was.role)) {
+      throw Object.assign(new Error('This clip has a locked team brand kit on: only its owner can take it off.'), { status: 403 })
+    }
+  }
+  if (!now) return body
+  const access = await kitAccess(userId, now)
+  if (!access || !lockHolds(access.data, access.role)) return body
+  const set = lockSetOf(access.data)
+  const kept = lockClipLook({ texts: body.textOverlays ?? [], caption: body.captionStyle ?? {}, parts: [], segments: body.segments ?? [] }, set)
+  // (its caption parts — each in its own look — saved beside the rows)
+  const layers = body.layers && typeof body.layers === 'object' ? body.layers as Record<string, unknown> : null
+  const parts = Array.isArray(layers?.captionParts)
+    ? (layers.captionParts as unknown[]).map(p => {
+      const style = p && typeof p === 'object' ? (p as { style?: unknown }).style : null
+      return style && typeof style === 'object' ? { ...(p as object), style: lockCaption(style as Partial<CaptionStyle>, set) } : p
+    })
+    : null
+  return {
+    ...body, textOverlays: kept.texts, captionStyle: kept.caption, segments: kept.segments,
+    ...(layers && parts ? { layers: { ...layers, captionParts: parts } } : {}),
+  }
+}
+
+export async function saveClip(userId: string, clipId: string, input: SaveClipInput) {
+  // (a locked team kit's colours and fonts: before anything is written)
+  const body = await keptToLock(userId, clipId, input)
   const { segments, captionStyle, textOverlays, audioTracks, transitions, overlays } = body
   const ms = (v: number) => Math.round(v)
 
@@ -529,6 +570,27 @@ function slotMap<T>(m: unknown, pick: (v: unknown) => T | undefined): Record<str
 }
 const num = (v: unknown, lo: number, hi: number) => typeof v === 'number' && isFinite(v) ? Math.max(lo, Math.min(hi, v)) : undefined
 
+// B-roll Make my clips laid: its search and the stock videos it chose from (for the editor's Swap) —
+// at most 8, each a stock library's own video (the links importStock accepts), and which one it shows
+const STOCK_REF = /^((pixabay|pexels):\d+|coverr:[A-Za-z0-9_-]{1,64})$/
+const STOCK_HOST = /(^|\.)(pixabay\.com|pexels\.com|coverr\.co)$/
+export function cleanBroll(b: unknown): BrollPick | null {
+  const x = b as Partial<BrollPick> | null | undefined
+  if (!x || !Array.isArray(x.alts)) return null
+  const host = (u: unknown) => { try { return typeof u === 'string' ? new URL(u).hostname : '' } catch { return '' } }
+  const alts: BrollAlt[] = x.alts.slice(0, 8).flatMap((a): BrollAlt[] => {
+    if (!a || typeof a.ref !== 'string' || !STOCK_REF.test(a.ref) || !STOCK_HOST.test(host(a.url))) return []
+    const text = (v: unknown, n: number) => (typeof v === 'string' ? v.slice(0, n) : '')
+    const link = (v: unknown) => (STOCK_HOST.test(host(v)) ? text(v, 600) : '')
+    return [{
+      ref: a.ref, provider: text(a.provider, 16), title: text(a.title, 120), thumb: link(a.thumb), preview: link(a.preview), url: text(a.url, 600),
+      width: Math.round(num(a.width, 0, 10000) ?? 0), height: Math.round(num(a.height, 0, 10000) ?? 0), duration: Math.round(num(a.duration, 0, 36000) ?? 0),
+    }]
+  })
+  if (!alts.length) return null
+  return { query: typeof x.query === 'string' ? x.query.slice(0, 100) : '', alts, at: Math.round(num(x.at, 0, alts.length - 1) ?? 0) }
+}
+
 // Keep only what a frame needs from the client: known fields, sane values, and never the
 // preview-only signed image URLs (they expire; the editor signs fresh ones on load)
 function cleanFrame(frame: FrameSettings): FrameSettings {
@@ -548,7 +610,8 @@ function cleanFrame(frame: FrameSettings): FrameSettings {
     const base: FrameItem = { id: it.id.slice(0, 64), lane: typeof lane === 'string' ? lane : Math.round(lane), kind: it.kind, start_ms: Math.round(start), end_ms: Math.round(end), ...(it.hidden ? { hidden: true } : {}), ...(it.locked ? { locked: true } : {}) }
     if (it.kind === 'video') {
       if (typeof it.source_video_id !== 'string') return []
-      return [{ ...base, source_video_id: it.source_video_id, source_offset_ms: Math.round(num(it.source_offset_ms, 0, 1e9) ?? 0), volume: num(it.volume, 0, 1) ?? 1, muted: !!it.muted, corners: corner(it.corners), ...rectOf(it.rect) }]
+      const broll = cleanBroll(it.broll)
+      return [{ ...base, source_video_id: it.source_video_id, source_offset_ms: Math.round(num(it.source_offset_ms, 0, 1e9) ?? 0), volume: num(it.volume, 0, 1) ?? 1, muted: !!it.muted, corners: corner(it.corners), ...rectOf(it.rect), ...(broll ? { broll } : {}) }]
     }
     if (it.kind === 'photo') {
       if (typeof it.image_path !== 'string') return []
@@ -633,10 +696,14 @@ export async function regenerateClipText(userId: string, clipId: string) {
   if (!words.length) throw Object.assign(new Error('This clip has no captions yet, so there is nothing to write from'), { status: 400 })
 
   const { generateClipText } = await import('@/lib/clipText')
-  // (no brand voice: taken out of brand kits — user, 2026-10-20)
+  // The brand's words (brand kit Phase 5): names spelled its way, its tone, words it hides, its
+  // hashtags and closing line — rules on the one call made anyway, nothing more paid for
+  const { brandWordsFor } = await import('./brandKits')
+  const { brandCaptionWords, brandClipText, brandVoice } = await import('@/lib/brandWords')
+  const brandWords = await brandWordsFor(userId, clipId)
   let text
   try {
-    text = await generateClipText(words, clip.video_title ?? null, prompt => askGemini(prompt), 'roman', null)
+    text = brandClipText(await generateClipText(brandCaptionWords(words, brandWords), clip.video_title ?? null, prompt => askGemini(prompt), 'roman', brandVoice(brandWords)), brandWords)
   } catch (e) {
     console.error('[ai-text] Gemini error:', e)
     throw Object.assign(new Error('AI could not write the text right now. Try again in a moment.'), { status: 502 })

@@ -14,9 +14,12 @@
  * of the kit's screens 2026-10-20) are gone from it: a kit saved with them loses them on its next save.
  * Its progress bar, end card, intro and outro came back in Phase 4 (2026-10-27), now through the brand
  * engine like the rest — under new keys, so what an older kit kept of them doesn't come back on by itself.
+ * Its words (spellings, hidden words, lines, hashtags, tone) came in Phase 5 (2026-10-28: lib/brandWords.ts),
+ * under a new key too.
  */
 import type { CaptionStyle, AnimationType } from './types'
 import { cleanCardLook, DEFAULT_CARD_LOOK, type CardLook } from './brandCard'
+import { cleanBrandWords, NO_BRAND_WORDS, type BrandWords } from '../brandWords'
 
 export type LogoCorner = 'tl' | 'tr' | 'bl' | 'br'
 /** When the logo shows: the whole clip, or only its first / last seconds */
@@ -128,6 +131,11 @@ export interface BrandKitData {
    * in before and after it (their ids; null: none)
    */
   ends: BrandEnds
+  /**
+   * How the brand writes (Phase 5, lib/brandWords.ts): names captions spell its way, words never shown,
+   * its calls to action, hashtags and tone — on the clips it's on (and, the default kit's, on clips with none)
+   */
+  words: BrandWords
 }
 
 export interface BrandEnds { card: boolean; seconds: number; intro: BrandEndVideo | null; outro: BrandEndVideo | null }
@@ -153,8 +161,10 @@ export interface BrandKit {
   data: BrandKitData
   /** A signed link to the logo — for showing it only, never saved */
   logo_url?: string | null
-  /** A kit someone shared with this user: who (their name or email). They can use it, not change it. */
+  /** A kit someone shared with this user: who (their name or email) */
   shared_by?: string | null
+  /** A shared kit: what this user can do with it (Phase 6, brandTeam.ts) — use it on clips, or change it too */
+  role?: 'use' | 'edit'
 }
 
 /** How many brand kits each plan can have (user, 2026-10-17); a plan not listed gets the Free count */
@@ -174,9 +184,6 @@ export const brandFontKey = (userId: string, family: string) => `brand/${userId}
 
 /** The logo shown only at the start or end: for this long (s) */
 export const LOGO_SECONDS: [number, number] = [1, 15]
-/** How many people one kit can be shared with, and the plans that can share (user's plan names) */
-export const MAX_KIT_SHARES = 10
-export const SHARE_PLANS = ['agency']
 /** A progress bar's thickness (px on a 1080 × 1920 frame) */
 export const PROGRESS_HEIGHT: [number, number] = [4, 40]
 /** More brand colours besides the main and accent */
@@ -208,6 +215,7 @@ export const DEFAULT_BRAND_KIT: BrandKitData = {
   is_default: false,
   progress_bar: { on: false, color: 'accent', height: 12, position: 'bottom' },
   ends: { card: false, seconds: 3, intro: null, outro: null },
+  words: NO_BRAND_WORDS,
 }
 
 const ANIMATIONS: AnimationType[] = ['karaoke', 'fade', 'none', 'pop', 'highlight', 'bounce', 'word', 'hormozi', 'box', 'glow']
@@ -329,6 +337,7 @@ export function cleanBrandKitData(raw: unknown, userId?: string): BrandKitData {
       intro: endVideoOf(d.ends?.intro),
       outro: endVideoOf(d.ends?.outro),
     },
+    words: cleanBrandWords(d.words),
     frames: {
       corners: typeof d.frames?.corners === 'number' && isFinite(d.frames.corners) ? Math.round(num(d.frames.corners, 0, 100, 80)) : null,
     },
