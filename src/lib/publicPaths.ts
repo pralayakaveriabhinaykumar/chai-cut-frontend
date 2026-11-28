@@ -2,7 +2,8 @@
 // Used by the server check (auth.config.ts) and the browser check (app/providers.tsx). Razorpay's
 // website review checks prices and the refund policy signed out too: payments from a site it has not
 // approved are blocked.
-export const PUBLIC_PATHS = ['/', '/pricing', '/refunds', '/privacy', '/terms', '/support', '/delete-account']
+// (/launch: the launch countdown, lib/launchGate.ts)
+export const PUBLIC_PATHS = ['/', '/pricing', '/refunds', '/privacy', '/terms', '/support', '/delete-account', '/launch']
 
 // The sign-in pages (a signed-in visitor is sent on to the dashboard from these)
 export const AUTH_PAGES = ['/login', '/signup', '/verify-otp', '/forgot-password', '/reset-password', '/restore-account']

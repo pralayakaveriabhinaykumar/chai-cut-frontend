@@ -1,7 +1,7 @@
 'use client'
 
 import { SessionProvider, useSession } from 'next-auth/react'
-import { useRouter, usePathname } from 'next/navigation'
+import { useRouter, usePathname, useSelectedLayoutSegment } from 'next/navigation'
 import { useEffect } from 'react'
 import { needsSignIn } from '@/lib/publicPaths'
 import { BrandKitDialogHost } from '@/components/brand/BrandKitDialog'
@@ -14,6 +14,9 @@ function SessionWatcher() {
   const { status, data } = useSession()
   const router = useRouter()
   const pathname = usePathname()
+  // The page really shown. While the launch countdown is up, /dashboard shows the countdown with the
+  // address left as /dashboard (lib/launchGate.ts): it must not send a signed-out visitor on to sign in
+  const shown = useSelectedLayoutSegment()
   const replaced = !!data?.replaced
 
   useEffect(() => {
@@ -21,10 +24,10 @@ function SessionWatcher() {
     // route can clear the cookie)
     if (replaced) { window.location.replace('/api/auth/signed-out'); return }
     // (only from the signed-in parts of the site: an address that isn't a page stays on Page not found)
-    if (status === 'unauthenticated' && needsSignIn(pathname)) {
+    if (status === 'unauthenticated' && needsSignIn(pathname) && shown !== 'launch') {
       router.replace('/login')
     }
-  }, [status, replaced, pathname, router])
+  }, [status, replaced, pathname, shown, router])
 
   return null
 }

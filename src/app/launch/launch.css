@@ -1,0 +1,206 @@
+/* ── Launch countdown (app/launch) ─────────────────────────────────────────
+   Dark, like the rest of the site: colours from the shared theme in globals.css */
+
+.ln-root {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-display), system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding: 28px 20px 24px;
+}
+
+/* A soft lime light behind the numbers, breathing slowly */
+.ln-glow {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(1100px, 160vw);
+  aspect-ratio: 2 / 1;
+  transform: translate(-50%, -55%);
+  background:
+    radial-gradient(closest-side, color-mix(in srgb, var(--accent) 16%, transparent), transparent 70%),
+    radial-gradient(closest-side, rgba(255, 255, 255, 0.05), transparent 80%);
+  filter: blur(10px);
+  pointer-events: none;
+  animation: ln-breathe 7s ease-in-out infinite;
+}
+@keyframes ln-breathe {
+  0%, 100% { opacity: 0.7; transform: translate(-50%, -55%) scale(1); }
+  50%      { opacity: 1;   transform: translate(-50%, -55%) scale(1.06); }
+}
+
+.ln-top {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: center;
+}
+
+.ln-center {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 22px;
+  padding: 40px 0;
+}
+
+.ln-eyebrow {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* ── The timer ── */
+.ln-timer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: clamp(4px, 1.6vw, 18px);
+}
+
+.ln-unit {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.ln-digits {
+  display: flex;
+  gap: clamp(3px, 0.6vw, 8px);
+}
+
+.ln-digit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: clamp(28px, 8.4vw, 104px);
+  height: clamp(44px, 12.4vw, 150px);
+  border-radius: clamp(8px, 1.2vw, 16px);
+  background: linear-gradient(180deg, #161616 0%, #0c0c0c 100%);
+  border: 1px solid var(--border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 18px 40px rgba(0, 0, 0, 0.45);
+  font-size: clamp(28px, 8.6vw, 110px);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--title-top);
+  animation: ln-drop 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes ln-drop {
+  from { opacity: 0; transform: translateY(-28%); filter: blur(4px); }
+  to   { opacity: 1; transform: translateY(0);    filter: blur(0); }
+}
+
+.ln-unit-accent .ln-digit {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 0 36px color-mix(in srgb, var(--accent) 14%, transparent), 0 18px 40px rgba(0, 0, 0, 0.45);
+}
+
+.ln-label {
+  font-size: clamp(10px, 1.1vw, 13px);
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.ln-sep {
+  height: clamp(44px, 12.4vw, 150px);
+  display: inline-flex;
+  align-items: center;
+  font-size: clamp(20px, 6vw, 76px);
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-dim);
+  transform: translateY(-4%);
+}
+
+.ln-when {
+  margin: 6px 0 0;
+  font-size: clamp(15px, 1.6vw, 18px);
+  font-weight: 600;
+  color: var(--text);
+}
+.ln-dot { color: var(--text-dim); margin: 0 4px; }
+
+.ln-tagline {
+  margin: 0;
+  max-width: 34ch;
+  font-size: clamp(14px, 1.4vw, 16px);
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+/* ── At zero ── */
+.ln-live {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  animation: ln-drop 500ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.ln-live-title {
+  margin: 0;
+  font-size: clamp(44px, 10vw, 128px);
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--accent);
+  text-shadow: 0 0 60px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.ln-live-link {
+  padding: 12px 24px;
+  border-radius: 999px;
+  background: var(--btn-bg);
+  color: var(--btn-text);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+/* ── Footer: the pages Razorpay checks ── */
+.ln-foot {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 22px;
+  font-size: 13px;
+}
+.ln-foot a {
+  color: var(--text-dim);
+  text-decoration: none;
+  transition: color 150ms ease;
+}
+.ln-foot a:hover,
+.ln-foot a:focus-visible { color: var(--text); }
+
+/* Phones: the four numbers still fit one row at 320 px */
+@media (max-width: 480px) {
+  .ln-root { padding: 22px 12px 20px; }
+  .ln-unit { gap: 8px; }
+  .ln-eyebrow { font-size: 11px; letter-spacing: 0.26em; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ln-glow, .ln-digit, .ln-live { animation: none; }
+}

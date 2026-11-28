@@ -16,7 +16,7 @@
     "test:brand-style": "npx tsx --test src/server/services/brandStyle.test.ts",
     "test:brand-link": "npx tsx --test src/server/services/brandFromLink.test.ts",
     "test:email": "npx tsx --test src/lib/shared/email.test.ts",
-    "test:routes": "npx tsx --test src/lib/publicPaths.test.ts",
+    "test:routes": "npx tsx --test src/lib/publicPaths.test.ts src/lib/launchGate.test.ts",
     "test:analytics": "npx tsx --test src/lib/analytics.test.ts",
     "test:editor-words": "npx tsx --test src/modules/editor/transcriptWindow.test.ts",
     "test:notices": "npx tsx --test src/lib/notices.test.ts src/server/services/notices.test.ts",
