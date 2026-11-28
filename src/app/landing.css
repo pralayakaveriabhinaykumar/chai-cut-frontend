@@ -4777,3 +4777,719 @@ html.lenis, html.lenis body { height: auto; }
 .lp-root .fg .fa-layouts figure { height: 92%; }
 .lp-root .fg .fa-captions .fa-phone, .lp-root .fg .fa-hooks .fa-phone { height: 92%; }
 .lp-root .fa-island { width: 26%; margin-left: -13%; }
+
+/* ── Phones: top bar + hero (user 2026-11-27, mobile pass, section 1) ──────────────────────────────────────────
+   Desktop (961px and up) is untouched: every rule here is inside a phone media query.
+   1. "short-form" never breaks as "short- / form" (LandingPage.tsx HeroLead wraps it in .lead-keep).
+   2. The hero is exactly one phone screen (svh: the screen without the browser's bars). Phones read it in a different
+      order from desktop (user 2026-11-27): the headline at the top, the editor video in the middle (a fixed, small gap
+      above and below it; the group centred on the screen, user: "huge space above and below the video"), then the subheadline and the two buttons at the bottom. Nothing of the next section shows.
+   3. Phones show the same editor animation as desktop (hero-editor.tsx), not the panda one; the "Got a podcast…"
+      and "You choose the moments…" lines are gone on phones.
+   4. The bar: logo · Log in · ☰ — Get Started left the bar on phones (the hero has its own), Log in is the
+      outlined button (it used to be hidden under 480px, only in the ☰ menu). */
+@media (max-width: 960px) {
+  .lp-root .lead-keep { white-space: nowrap; }
+  .lp-root .hero { padding: 76px 20px 28px; min-height: 100svh; align-items: stretch; }
+  /* the text's wrappers step aside (display: contents) so the headline, the video, the subheadline and the buttons
+     are one column that can be reordered */
+  .lp-root .hero-grid { justify-content: center; }
+  .lp-root .hero-text, .lp-root .hero-text > div { display: contents; }
+  .lp-root .hero-headline { order: 1; margin-bottom: 0; }
+  .lp-root .hero-visual { order: 2; margin: 0; padding: 28px 0; }
+  .lp-root .hero-lead { order: 3; font-size: 19px; margin-bottom: 0; }
+  /* the buttons a clear step below the subheadline, their own block (user 2026-11-27) */
+  .lp-root .hero-ctas { order: 4; margin: 44px 0 0; }
+  .lp-root .hero-trust { order: 5; }
+  /* the editor (desktop's hero visual) on phones too, full width */
+  .lp-root .hero-visual-desk { display: block; }
+  .lp-root .hero-visual .hl-fit.he-fit { max-width: 640px; margin: 0 auto; }
+  /* the bar: no Get Started (Log in + the ☰ menu) */
+  .lp-root .lp-nav .btn-nav-primary { display: none; }
+}
+@media (max-width: 480px) {
+  .lp-root .lp-nav .nav-login { display: inline-flex; }
+}
+/* short phone screens (the browser's bars showing): a little less room around the video, so the buttons still end
+   inside the first screen */
+@media (max-width: 960px) and (max-height: 720px) {
+  .lp-root .hero { padding-top: 72px; padding-bottom: 20px; }
+  .lp-root .hero-visual { padding: 16px 0; }
+  .lp-root .hero-ctas { margin-top: 32px; }
+}
+
+/* ── Design guide (dev server only: LandingPage.tsx DESIGN_GUIDE adds .lp-sections; user 2026-11-28) ─────────────
+   Each section's own colour as an outline drawn inside its edge (outlines take no room, so nothing moves), and the
+   pill naming the section under the middle of the screen. */
+.lp-root.lp-sections .lp-nav       { --c: #ff3b30; }
+.lp-root.lp-sections .hero         { --c: #ff9500; }   /* (done: no outline, user 2026-11-28) */
+.lp-root.lp-sections #problem      { --c: #ffd60a; }   /* (done: no outline, user 2026-11-28) */
+.lp-root.lp-sections #intro        { --c: #34c759; }
+.lp-root.lp-sections #process      { --c: #00c7be; }
+.lp-root.lp-sections #features     { --c: #0a84ff; }
+.lp-root.lp-sections #trends       { --c: #5e5ce6; }
+.lp-root.lp-sections #proof        { --c: #bf5af2; }
+.lp-root.lp-sections #pricing      { --c: #ff2d55; }
+.lp-root.lp-sections #faq          { --c: #ac8e68; }
+.lp-root.lp-sections .cta-section  { --c: #ffffff; }
+.lp-root.lp-sections .lp-footer    { --c: #8e8e93; }
+.lp-root.lp-sections :is(.lp-nav, #process, #features, #trends, #proof, #pricing, #faq, .cta-section, .lp-footer) {
+  outline: 3px solid var(--c); outline-offset: -3px;
+}
+.lp-root .lp-guide-pill {
+  position: fixed; left: 10px; bottom: 10px; z-index: 9999; pointer-events: none;
+  padding: 5px 11px; border-radius: 999px; border: 2px solid var(--c);
+  background: rgba(0,0,0,.82); color: var(--c); font: 700 12px/1.2 system-ui, sans-serif; letter-spacing: .01em;
+}
+
+/* ── Phones: the ☰ menu, cleaned up (user 2026-11-28) ── a solid panel (the hero no longer shows through the links),
+   the sections by their current names + FAQ, and Get Started as a full-width button at the bottom. */
+@media (max-width: 960px) {
+  .lp-root .nav-menu {
+    background: #0e0e0e; backdrop-filter: none; -webkit-backdrop-filter: none;
+    box-shadow: 0 28px 70px -18px rgba(0,0,0,.9), 0 0 0 1px rgba(255,255,255,.04);
+  }
+  .lp-root .nav-menu a { padding: 12px 14px; }
+  .lp-root .nav-menu .nav-menu-cta {
+    margin: 8px 6px 6px; padding: 13px 14px; border-radius: 999px; text-align: center;
+    background: var(--btn-bg); color: var(--btn-text); font-weight: 700;
+  }
+  .lp-root .nav-menu .nav-menu-cta { position: relative; }   /* (the divider line above it: ::before) */
+  .lp-root .nav-menu .nav-menu-cta::before {
+    content: ''; position: absolute; left: -6px; right: -6px; top: -9px; height: 1px; background: var(--border);
+  }
+  .lp-root .nav-menu .nav-menu-cta:hover, .lp-root .nav-menu .nav-menu-cta:focus-visible { background: var(--btn-bg); opacity: .9; }
+  .lp-root .nav-menu .nav-menu-cta:active { transform: scale(.98); }
+}
+
+/* ── Phones: 2 · The Problem in one screen (user 2026-11-28) ─────────────────────────────────────────────────────
+   Phones read it as: the label, the headline, the time card and the closing question — the three numbered steps
+   (01 / 02 / 03) are left out on phones ("we can remove these"; desktop keeps them) — and the whole section is exactly
+   one phone screen under the bar (svh: the screen without the browser's bars), its pieces spread down it.
+   Desktop is untouched (all inside a phone media query). */
+@media (max-width: 960px) {
+  .lp-root #problem .section-inner.lx-pb {
+    min-height: 100svh; box-sizing: border-box; padding: 72px 20px 24px;
+    display: flex; flex-direction: column; justify-content: space-evenly; gap: 18px;
+  }
+  .lp-root #problem .lx-pb-main { gap: 22px; }
+  .lp-root #problem .lx-pb-steps { display: none; }
+  /* the label and the headline: two lines */
+  .lp-root #problem .lx-pb-eyebrow { margin-bottom: 12px; padding: 5px 12px 5px 10px; font-size: 12.5px; }
+  .lp-root #problem .lx-pb-title { font-size: clamp(24px, 7.6vw, 31px); line-height: 1.08; }
+  /* the card, full width */
+  .lp-root #problem .lx-pb-body { gap: 0; }
+  .lp-root #problem .lx-pb-card { max-width: none; }
+  .lp-root #problem .lx-pb-card .lx-grind { padding: 16px 18px 16px; border-radius: 16px; }
+  .lp-root #problem .lx-pb-card .lx-grind-head { margin-bottom: 10px; font-size: 13px; }
+  .lp-root #problem .lx-grind-legend { margin: -2px 0 12px; font-size: 11px; }
+  .lp-root #problem .lx-pb-card .lx-grind-rows { gap: 9px; }
+  .lp-root #problem .lx-pb-card .lx-grind-rows li { font-size: 12.5px; gap: 10px; }
+  .lp-root #problem .lx-pb-card .lx-grind-total { margin-top: 14px; padding-top: 12px; }
+  .lp-root #problem .lx-pb-card .lx-grind-total b { font-size: 26px; }
+  /* the closing question: two lines */
+  .lp-root #problem .lx-pb-turn { gap: 0; }
+  .lp-root #problem .lx-pb-close { font-size: clamp(19px, 5.8vw, 23px); line-height: 1.25; }
+}
+/* short phone screens (the browser's bars showing): a little closer, so it still fits */
+@media (max-width: 960px) and (max-height: 700px) {
+  .lp-root #problem .section-inner.lx-pb { padding: 66px 18px 16px; gap: 12px; }
+  .lp-root #problem .lx-pb-main { gap: 16px; }
+  .lp-root #problem .lx-pb-card .lx-grind { padding: 13px 16px; }
+  .lp-root #problem .lx-pb-card .lx-grind-rows { gap: 7px; }
+  .lp-root #problem .lx-pb-card .lx-grind-total { margin-top: 11px; padding-top: 9px; }
+}
+/* (user 2026-11-28: "reduce the size of this card" and "use the space at the start — move the problem text up")
+   the label and headline sit right under the bar; the card, smaller, is centred in the room below them; the question
+   stays at the foot */
+@media (max-width: 960px) {
+  .lp-root #problem .section-inner.lx-pb { justify-content: flex-start; padding-top: 74px; }
+  .lp-root #problem .lx-pb-main { flex: 1; gap: 16px; }
+  .lp-root #problem .lx-pb-body { margin-block: auto; }
+  .lp-root #problem .lx-pb-card { max-width: 340px; margin-inline: auto; }
+  .lp-root #problem .lx-pb-card .lx-grind { padding: 12px 15px 13px; border-radius: 14px; }
+  .lp-root #problem .lx-pb-card .lx-grind-head { margin-bottom: 7px; font-size: 12px; }
+  .lp-root #problem .lx-pb-card .lx-grind-head em { font-size: 10px; padding: 1px 7px; }
+  .lp-root #problem .lx-grind-legend { margin: -1px 0 8px; font-size: 10px; gap: 12px; }
+  .lp-root #problem .lx-pb-card .lx-grind-rows { gap: 6px; }
+  .lp-root #problem .lx-pb-card .lx-grind-rows li { font-size: 11.5px; gap: 9px; }
+  .lp-root #problem .lx-pb-card .lx-grind-bar { height: 5px; }
+  .lp-root #problem .lx-pb-card .lx-grind-total { margin-top: 9px; padding-top: 8px; }
+  .lp-root #problem .lx-grind .lx-grind-total span { font-size: 11.5px; }
+  .lp-root #problem .lx-pb-card .lx-grind-total b { font-size: 21px; }
+  .lp-root #problem .lx-grind-total-bar { height: 6px; margin: 6px 0 5px; }
+  .lp-root #problem .lx-grind .lx-grind-total-foot span { font-size: 10.5px; }
+}
+@media (max-width: 960px) and (max-height: 700px) {
+  .lp-root #problem .section-inner.lx-pb { padding-top: 70px; }
+  .lp-root #problem .lx-pb-card .lx-grind { padding: 11px 14px 12px; }
+  .lp-root #problem .lx-pb-card .lx-grind-rows { gap: 5px; }
+  .lp-root #problem .lx-pb-card .lx-grind-total { margin-top: 8px; padding-top: 7px; }
+}
+/* (user 2026-11-28: "every section should be one phone screen together with the bar") the bar (60px) + this section =
+   exactly one screen: the section is the screen's height minus the bar, its content starting just below its top edge,
+   so with the section right under the bar nothing is hidden behind the bar or below the screen */
+@media (max-width: 960px) {
+  .lp-root #problem .section-inner.lx-pb { min-height: calc(100svh - 60px); padding-top: 18px; padding-bottom: 20px; }
+}
+@media (max-width: 960px) and (max-height: 700px) {
+  .lp-root #problem .section-inner.lx-pb { padding-top: 14px; padding-bottom: 14px; }
+}
+/* (user 2026-11-28: "bring the headline down, the question up, so the section looks symmetrical") four equal gaps —
+   above the headline, headline → card, card → question, below the question. The section is a grid of
+   gap · headline · gap · card · gap · question · gap, the gaps sharing the free height equally (1fr each); the label +
+   headline and the card sit in the problem block (.lx-pb-main, kept as one box for its entrance timeline), laid on the
+   section's rows with subgrid */
+@media (max-width: 960px) {
+  .lp-root #problem .section-inner.lx-pb {
+    display: grid; grid-template-rows: 1fr auto 1fr auto 1fr auto 1fr; gap: 0;
+    padding-top: 8px; padding-bottom: 8px;
+  }
+  .lp-root #problem .lx-pb-main { grid-row: 2 / 5; display: grid; grid-template-rows: subgrid; gap: 0; flex: none; }
+  .lp-root #problem .lx-pb-head { grid-row: 1; }
+  .lp-root #problem .lx-pb-body { grid-row: 3; margin: 0; }
+  .lp-root #problem .lx-pb-turn { grid-row: 6; }
+}
+@media (max-width: 960px) and (max-height: 700px) {
+  .lp-root #problem .section-inner.lx-pb { padding-top: 6px; padding-bottom: 6px; }
+}
+
+/* ── Phones: the time card as a running clock (user 2026-11-28; GrindCard data-clock, sections.tsx) ──
+   the rows are there from the start, their bars empty and their times at 0m; each bar is revealed left to right as its
+   minutes pass (--p: 0 → 1, set by the clock) — white up to the dashed planned line, then the red overtime creeping on
+   past it — and its time counts up, turning red once it runs over. The chore that's running glows a little. */
+@media (max-width: 960px) {
+  .lp-root .lx-grind[data-clock] .lx-grind-rows li { opacity: 1; transform: none; transition: none; }
+  .lp-root .lx-grind[data-clock] .lx-grind-bar i {
+    transform: none !important; transition: none !important;
+    clip-path: inset(0 calc((1 - var(--p, 0)) * 100%) 0 0 round 999px);
+  }
+  .lp-root .lx-grind[data-clock] .lx-grind-time {
+    color: rgba(255,255,255,.4) !important; font-weight: 650 !important; animation: none !important; transition: color .12s ease;
+  }
+  .lp-root .lx-grind[data-clock] li[data-going] .lx-grind-time { color: #fff !important; }
+  .lp-root .lx-grind[data-clock] li[data-late] .lx-grind-time { color: #f87171 !important; }
+  .lp-root .lx-grind[data-clock] li[data-going] .lx-grind-task { color: #fff; }
+  .lp-root .lx-grind[data-clock] li[data-going][data-late] .lx-grind-bar i { box-shadow: 0 0 12px -1px rgba(239,68,68,.75); }
+}
+
+/* ── Phones: 3 · Introducing Shortcut in one screen with the bar (user 2026-11-28: "keep all, parts side by side") ──
+   Every piece stays — the label, the headline, the two sentences, the struck-out lines and the two parts — compact,
+   with "Your part" and "Shortcut's part" as two columns side by side (a fine line between them), and the pieces spread
+   evenly down the screen (equal gaps above, between and below). Desktop is untouched. */
+@media (max-width: 960px) {
+  .lp-root #intro .section-inner.lx-in {
+    min-height: calc(100svh - 60px); box-sizing: border-box; padding: 14px 16px;
+    justify-content: space-evenly; gap: 10px;
+  }
+  /* the label and the headline (three lines) */
+  .lp-root #intro .lx-in-eyebrow { margin-bottom: 12px; font-size: 12.5px; }
+  .lp-root #intro .lx-in-title { font-size: clamp(25px, 7.6vw, 31px); line-height: 1.06; }
+  /* the two sentences */
+  .lp-root #intro .lx-in-lede { gap: 6px; }
+  .lp-root #intro .lx-in-lede-1 { font-size: 15px; line-height: 1.4; }
+  .lp-root #intro .lx-in-lede-2 { font-size: 13.5px; line-height: 1.5; }
+  /* the struck-out lines, one tight group */
+  .lp-root #intro .lx-in-gone { gap: 6px 16px; font-size: 12.5px; }
+  /* the two parts, side by side */
+  .lp-root #intro .lx-in-split { grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr); gap: 0; align-items: stretch; }
+  .lp-root #intro .lx-in-card { gap: 8px; padding: 2px 10px 2px 0; }
+  .lp-root #intro .lx-in-sc { padding: 2px 0 2px 12px; }
+  .lp-root #intro .lx-in-divider { display: block; margin: 0; }
+  .lp-root #intro .lx-in-tag { gap: 5px; padding: 3px 8px 3px 5px; font-size: 10.5px; }
+  .lp-root #intro .lx-in-tag-mark { width: 13px; height: 13px; }
+  .lp-root #intro .lx-in-tag .lx-in-tag-mark svg { width: 10px; height: 10px; }
+  .lp-root #intro .lx-in-card h3 { font-size: 14.5px; line-height: 1.22; }
+  .lp-root #intro .lx-in-card ul, .lp-root #intro .lx-in-you ul { gap: 7px; }
+  .lp-root #intro .lx-in-card li { gap: 7px; font-size: 12.5px; }
+  .lp-root #intro .lx-in-num { width: 18px; height: 18px; font-size: 10px; }
+  .lp-root #intro .lx-in-you .lx-in-ico { display: none; }   /* (the number says it; no room for both side by side) */
+  .lp-root #intro .lx-in-mark { width: 14px; height: 14px; }
+  .lp-root #intro .lx-in-foot { padding-top: 4px; font-size: 11.5px; line-height: 1.35; }
+}
+@media (max-width: 960px) and (max-height: 700px) {
+  .lp-root #intro .section-inner.lx-in { padding: 10px 16px; gap: 8px; }
+  .lp-root #intro .lx-in-eyebrow { margin-bottom: 10px; }
+  .lp-root #intro .lx-in-title { font-size: clamp(23px, 7vw, 28px); }
+  .lp-root #intro .lx-in-lede-2 { font-size: 13px; }
+  .lp-root #intro .lx-in-card ul, .lp-root #intro .lx-in-you ul { gap: 6px; }
+}
+@media (max-width: 960px) {
+  /* "Your Shortcut to Short-Form." on one line (it broke as "Short- / Form."): the headline a touch smaller, two lines */
+  .lp-root #intro .lx-in-title { font-size: clamp(21px, 6.9vw, 28px); }
+  .lp-root #intro .lx-in-line { white-space: nowrap; }
+  /* "That's all you do." right under the three steps, not pinned to the column's foot */
+  .lp-root #intro .lx-in-you .lx-in-foot { margin-top: 2px; }
+}
+@media (max-width: 960px) and (max-height: 700px) {
+  .lp-root #intro .lx-in-title { font-size: clamp(21px, 6.9vw, 28px); }
+}
+/* (user 2026-11-28) phones: "Upload your video, select the moment…" is left out, and "Shortcut makes turning long videos
+   into short-form content incredibly simple." moves to the foot of the section, so the two parts sit in the middle:
+   label + headline · struck-out lines · the two parts · that line */
+@media (max-width: 960px) {
+  .lp-root #intro .lx-in-lede-2 { display: none; }
+  .lp-root #intro .lx-in-head { order: 1; }
+  .lp-root #intro .lx-in-gone { order: 2; }
+  .lp-root #intro .lx-in-split { order: 3; }
+  .lp-root #intro .lx-in-lede { order: 4; }
+  .lp-root #intro .lx-in-lede-1 { font-size: 15.5px; }
+}
+/* (user 2026-11-28) phones: the label + headline at the very top of the section (a fixed margin below the bar), then the
+   two parts, then the struck-out lines (now under the parts), then the last line at the foot with the same margin; the
+   room in between shared equally (auto margins) */
+@media (max-width: 960px) {
+  .lp-root #intro .section-inner.lx-in { justify-content: flex-start; padding-top: 22px; padding-bottom: 22px; }
+  .lp-root #intro .lx-in-head { order: 1; }
+  .lp-root #intro .lx-in-split { order: 2; margin-top: auto; }
+  .lp-root #intro .lx-in-gone { order: 3; margin-top: auto; }
+  .lp-root #intro .lx-in-lede { order: 4; margin-top: auto; }
+}
+@media (max-width: 960px) and (max-height: 700px) {
+  .lp-root #intro .section-inner.lx-in { padding-top: 16px; padding-bottom: 16px; }
+}
+/* (phones) the last line sits at the very foot of the screen: it fades in where it is (no rise from below), so it counts
+   as on screen and plays — rising from 16px lower kept it in the strip the reveal ignores, and it never appeared */
+@media (max-width: 960px) {
+  .lp-root #intro .lx-in-lede[data-anim] { transform: none !important; }
+}
+/* (user 2026-11-28) phones: "Shortcut makes turning long videos into short-form content incredibly simple." styled like
+   The Problem's closing question (.lx-pb-close): the same size, weight, tight spacing and soft grey, with its key word —
+   "simple." — bright, a lime line drawn under it once the line has come in (like "wasn't") */
+@media (max-width: 960px) {
+  .lp-root #intro .lx-in-lede-1 {
+    font-size: clamp(19px, 5.8vw, 23px); font-weight: 850; line-height: 1.25; letter-spacing: -.025em;
+    color: color-mix(in srgb, var(--text) 62%, transparent);
+  }
+  .lp-root #intro .lx-in-key { position: relative; color: var(--text); white-space: nowrap; }
+  .lp-root #intro .lx-in-key::after {
+    content: ""; position: absolute; left: 0; right: .1em; bottom: -.06em; height: .08em; border-radius: 999px;
+    background: var(--logo, #c8ff00); box-shadow: 0 0 12px color-mix(in srgb, var(--logo, #c8ff00) 55%, transparent);
+    transform: scaleX(0); transform-origin: left center; transition: transform .7s cubic-bezier(.65,0,.35,1) .9s;
+  }
+  .lp-root #intro .lx-in-lede.in .lx-in-key::after { transform: scaleX(1); }
+}
+@media (max-width: 960px) and (prefers-reduced-motion: reduce) {
+  .lp-root #intro .lx-in-key::after { transform: scaleX(1); transition: none; }
+}
+
+/* ── Phones: "Your part" → "Shortcut's part" as a hand-off (user 2026-11-28: "redesign this, your preferred style") ──
+   two cards, one under the other, joined by a short lime line with an arrow: yours with the three steps as tiles in a
+   row (number, icon, words; a › between them), Shortcut's with a lime edge and the five chores as lime chips; each card's
+   label pill and heading share one line. "That's all you do." is left out (the three tiles say it). */
+@media (max-width: 960px) {
+  .lp-root #intro .lx-in-split { grid-template-columns: 1fr; gap: 0; align-items: stretch; }
+  /* the cards */
+  .lp-root #intro .lx-in-card, .lp-root #intro .lx-in-sc {
+    display: flex; flex-flow: row wrap; align-items: center; gap: 10px 8px;
+    padding: 12px 13px 13px; border-radius: 16px;
+    background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.015));
+    border: 1px solid rgba(255,255,255,.09); box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
+  }
+  .lp-root #intro .lx-in-sc {
+    border: 1px solid transparent;
+    background:
+      linear-gradient(180deg, #181a14, #111210) padding-box,
+      linear-gradient(140deg, color-mix(in srgb, var(--logo, #c8ff00) 60%, transparent), rgba(255,255,255,.1) 50%, rgba(255,255,255,.06)) border-box;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 18px 40px -26px color-mix(in srgb, var(--logo, #c8ff00) 45%, transparent);
+  }
+  /* label pill + heading on one line */
+  .lp-root #intro .lx-in-tag { align-self: center; flex: none; }
+  .lp-root #intro .lx-in-card h3 { flex: 1 1 auto; min-width: 0; font-size: 14px; line-height: 1.2; white-space: nowrap; }
+  .lp-root #intro .lx-in-card ul { flex: 1 0 100%; }
+  .lp-root #intro .lx-in-you .lx-in-foot { display: none; }
+  /* your three steps: tiles in a row */
+  .lp-root #intro .lx-in-you ul { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  .lp-root #intro .lx-in-you li {
+    position: relative; flex-direction: column; align-items: center; justify-content: flex-start; gap: 6px;
+    padding: 9px 4px 8px; border-radius: 12px; text-align: center;
+    background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.08);
+    font-size: 11.5px; line-height: 1.25; font-weight: 600;
+  }
+  .lp-root #intro .lx-in-you .lx-in-ico { display: grid; width: 30px; height: 30px; border-radius: 9px; }
+  .lp-root #intro .lx-in-you .lx-in-ico svg { width: 15px; height: 15px; }
+  .lp-root #intro .lx-in-you .lx-in-num { position: absolute; left: 6px; top: 6px; width: 16px; height: 16px; font-size: 9.5px; }
+  .lp-root #intro .lx-in-you li + li::before {
+    content: "›"; position: absolute; left: -11px; top: 50%; translate: -50% -50%;
+    font-size: 15px; font-weight: 700; color: color-mix(in srgb, var(--text) 40%, transparent);
+  }
+  /* the hand-off between the cards */
+  .lp-root #intro .lx-in-divider {
+    position: relative; justify-self: center; align-self: auto; width: 2px; height: 22px; margin: 0;
+    background: linear-gradient(180deg, rgba(255,255,255,.18), color-mix(in srgb, var(--logo, #c8ff00) 80%, transparent));
+    border-radius: 2px;
+  }
+  .lp-root #intro .lx-in-divider::after {
+    content: ""; position: absolute; left: 50%; bottom: -1px; width: 7px; height: 7px; translate: -50% 0; rotate: 45deg;
+    border-right: 2px solid var(--logo, #c8ff00); border-bottom: 2px solid var(--logo, #c8ff00);
+  }
+  /* Shortcut's five chores: lime chips */
+  .lp-root #intro .lx-in-sc ul { display: flex; flex-flow: row wrap; gap: 6px; }
+  .lp-root #intro .lx-in-sc li {
+    gap: 5px; padding: 5px 10px 5px 7px; border-radius: 999px; font-size: 12px; font-weight: 600;
+    background: color-mix(in srgb, var(--logo, #c8ff00) 9%, transparent);
+    border: 1px solid color-mix(in srgb, var(--logo, #c8ff00) 26%, transparent);
+  }
+  .lp-root #intro .lx-in-sc .lx-in-mark { width: 12px; height: 12px; }
+  .lp-root #intro .lx-in-sc .lx-in-foot { flex: 1 0 100%; margin: 0; padding-top: 0; font-size: 12px; }
+}
+/* narrow phones (360px): the chips a touch smaller, so the five fit on two lines */
+@media (max-width: 374px) {
+  .lp-root #intro .lx-in-sc li { padding: 4px 8px 4px 6px; font-size: 11px; gap: 4px; }
+  .lp-root #intro .lx-in-sc .lx-in-mark { width: 11px; height: 11px; }
+  .lp-root #intro .lx-in-you li { font-size: 11px; }
+  .lp-root #intro .lx-in-card h3 { font-size: 13.5px; }
+}
+/* short screens: the cards a little tighter */
+@media (max-width: 960px) and (max-height: 700px) {
+  .lp-root #intro .section-inner.lx-in { padding-top: 12px; padding-bottom: 12px; }
+  .lp-root #intro .lx-in-card, .lp-root #intro .lx-in-sc { padding: 10px 12px 11px; gap: 8px; }
+  .lp-root #intro .lx-in-you li { padding: 7px 4px 6px; gap: 5px; }
+  .lp-root #intro .lx-in-you .lx-in-ico { width: 26px; height: 26px; }
+  .lp-root #intro .lx-in-divider { height: 18px; }
+  .lp-root #intro .lx-in-lede-1 { font-size: clamp(17px, 5.3vw, 21px); }
+}
+
+/* ── Phones: Shortcut's part, redesigned as an auto-run panel (user 2026-11-28: "redesign Shortcut's part, look good") ──
+   the four chores as tiles in a 2 × 2 grid — each its own icon, its name, and a lime tick that draws in one after the other
+   — then Exporting across the full width with a render bar that fills and ends "Ready": done for you, fast (the opposite of
+   The Problem's slow red bars). The "Shortcut makes turning long videos…" line is left out on phones. */
+.lp-root .lx-in-sc-ico, .lp-root .lx-in-sc-bar { display: none; }     /* (desktop: the plain list, as before) */
+@media (max-width: 960px) {
+  .lp-root #intro .lx-in-lede { display: none; }
+  .lp-root #intro .lx-in-sc ul { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .lp-root #intro .lx-in-sc li {
+    display: grid; grid-template-columns: 24px minmax(0, 1fr) 14px; align-items: center; gap: 7px;
+    padding: 6px 8px 6px 6px; border-radius: 11px; font-size: 12px; font-weight: 650; line-height: 1.15;
+    background: color-mix(in srgb, var(--logo, #c8ff00) 6%, rgba(255,255,255,.02));
+    border: 1px solid color-mix(in srgb, var(--logo, #c8ff00) 17%, transparent);
+  }
+  .lp-root #intro .lx-in-sc-ico {
+    grid-column: 1; grid-row: 1; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 7px;
+    color: var(--logo, #c8ff00); background: color-mix(in srgb, var(--logo, #c8ff00) 12%, transparent);
+  }
+  .lp-root #intro .lx-in-sc-ico svg { width: 13px; height: 13px; }
+  .lp-root #intro .lx-in-sc-t { grid-column: 2; grid-row: 1; min-width: 0; color: var(--text); }
+  .lp-root #intro .lx-in-sc .lx-in-mark { grid-column: 3; grid-row: 1; width: 13px; height: 13px; justify-self: end; }
+  /* Exporting: the full width, a render bar between its name and its tick, then "Ready" */
+  .lp-root #intro .lx-in-sc li:last-child { grid-column: 1 / -1; grid-template-columns: 24px auto minmax(0, 1fr) 14px; }
+  .lp-root #intro .lx-in-sc li:last-child .lx-in-mark { grid-column: 4; }
+  .lp-root #intro .lx-in-sc-bar { grid-column: 3; grid-row: 1; display: flex; align-items: center; gap: 7px; min-width: 0; margin-left: 4px; }
+  .lp-root #intro .lx-in-sc-bar i { position: relative; flex: 1; height: 5px; border-radius: 999px; background: rgba(255,255,255,.08); overflow: hidden; }
+  .lp-root #intro .lx-in-sc-bar i::before {
+    content: ""; position: absolute; inset: 0; border-radius: inherit;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--logo, #c8ff00) 55%, transparent), var(--logo, #c8ff00));
+    transform: scaleX(0); transform-origin: left center; transition: transform 1.1s cubic-bezier(.55,0,.25,1) calc(var(--d, 0s) + 1.6s);
+  }
+  .lp-root #intro .lx-in-sc-bar b {
+    font-size: 10.5px; font-weight: 800; letter-spacing: .02em; color: var(--logo, #c8ff00);
+    opacity: 0; transform: translateX(-4px); transition: opacity .35s ease calc(var(--d, 0s) + 2.75s), transform .35s ease calc(var(--d, 0s) + 2.75s);
+  }
+  .lp-root #intro .lx-in-sc.in .lx-in-sc-bar i::before { transform: none; }
+  .lp-root #intro .lx-in-sc.in .lx-in-sc-bar b { opacity: 1; transform: none; }
+  /* the ticks draw in quickly, one after the other */
+  .lp-root #intro .lx-in-sc li { transition-delay: calc(var(--d, 0s) + .35s + var(--i) * .14s); }
+  .lp-root #intro .lx-in-sc .lx-in-mark path { transition-delay: calc(var(--d, 0s) + .6s + var(--i) * .22s) !important; }
+  .lp-root #intro .lx-in-sc li:last-child .lx-in-mark path { transition-delay: calc(var(--d, 0s) + 2.75s) !important; }
+  .lp-root #intro .lx-in-sc .lx-in-foot { margin-top: 2px; }
+}
+@media (max-width: 960px) and (prefers-reduced-motion: reduce) {
+  .lp-root #intro .lx-in-sc-bar i::before { transform: none; transition: none; }
+  .lp-root #intro .lx-in-sc-bar b { opacity: 1; transform: none; transition: none; }
+}
+
+/* ── Phones: the brand panda in place of "Your part" (user 2026-11-28) ─────────────────────────────────────────────
+   the panda (IntroPanda, sections.tsx) on the left under a soft spotlight like the sign-in page's, its black background
+   blended away (lighten), "You pick the moment." under it; Shortcut's part on the right as a compact list — each chore's
+   icon, name and tick, Exporting with its bar → Ready under its name. "Your part" and the divider are left out on phones;
+   desktop is unchanged (no panda there). */
+.lp-root .lx-in-panda { display: none; }
+@media (max-width: 960px) {
+  .lp-root #intro .lx-in-split { grid-template-columns: minmax(0, .9fr) minmax(0, 1.45fr); gap: 10px; align-items: center; }
+  .lp-root #intro .lx-in-you, .lp-root #intro .lx-in-divider { display: none; }
+  .lp-root #intro .lx-in-panda { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+  .lp-root #intro .lx-in-panda-box { position: relative; width: 100%; aspect-ratio: 640 / 720; }
+  .lp-root #intro .lx-in-panda-film { position: absolute; inset: 0; mix-blend-mode: lighten; }
+  .lp-root #intro .lx-in-panda-film > * { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .lp-root #intro .lx-in-panda-film video { opacity: 0; transition: opacity .15s linear; }
+  .lp-root #intro .lx-in-panda-film video[data-on] { opacity: 1; }
+  .lp-root #intro .lx-in-panda-light, .lp-root #intro .lx-in-panda-floor { position: absolute; z-index: 1; pointer-events: none; mix-blend-mode: screen; }
+  .lp-root #intro .lx-in-panda-light {
+    left: 50%; top: -12%; width: 130%; height: 112%; translate: -50% 0;
+    background: linear-gradient(to bottom, rgb(255 255 255 / .13), rgb(255 255 255 / .05) 55%, transparent 96%);
+    clip-path: polygon(40% 0, 60% 0, 100% 100%, 0 100%);
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 30%, #000 70%, transparent);
+            mask-image: linear-gradient(90deg, transparent, #000 30%, #000 70%, transparent);
+  }
+  .lp-root #intro .lx-in-panda-floor {
+    left: 50%; bottom: 0; width: 82%; height: 9%; translate: -50% 0;
+    background: radial-gradient(closest-side, rgb(255 255 255 / .11), transparent);
+  }
+  .lp-root #intro .lx-in-panda-cap { margin: 0; font-size: 12.5px; font-weight: 600; line-height: 1.3; text-align: center; color: color-mix(in srgb, var(--text) 62%, transparent); }
+  .lp-root #intro .lx-in-panda-cap b { color: var(--text); font-weight: 800; }
+  /* Shortcut's part: the pill, then the heading under it, then the list */
+  .lp-root #intro .lx-in-sc { gap: 7px; padding: 11px 11px 12px; }
+  .lp-root #intro .lx-in-sc .lx-in-tag { flex: none; }
+  .lp-root #intro .lx-in-sc h3 { flex: 1 0 100%; font-size: 14px; white-space: normal; }
+  .lp-root #intro .lx-in-sc ul { grid-template-columns: 1fr; gap: 5px; }
+  .lp-root #intro .lx-in-sc li { grid-template-columns: 22px minmax(0, 1fr) 13px; gap: 7px; padding: 5px 7px 5px 5px; font-size: 11.5px; border-radius: 10px; }
+  .lp-root #intro .lx-in-sc-ico { width: 22px; height: 22px; border-radius: 6px; }
+  .lp-root #intro .lx-in-sc-ico svg { width: 12px; height: 12px; }
+  .lp-root #intro .lx-in-sc li:last-child { grid-column: auto; grid-template-columns: 22px minmax(0, 1fr) 13px; row-gap: 5px; }
+  .lp-root #intro .lx-in-sc li:last-child .lx-in-mark { grid-column: 3; grid-row: 1; }
+  .lp-root #intro .lx-in-sc li:last-child .lx-in-sc-bar { grid-column: 1 / -1; grid-row: 2; margin: 0 0 1px 2px; }
+  .lp-root #intro .lx-in-sc .lx-in-foot { font-size: 11.5px; line-height: 1.3; }
+}
+
+/* ── Phones: Shortcut's part, smaller, with the main features (user 2026-11-28) ── the label, then the features as chips
+   two to a row (each pops in, one after another), then Exporting with its render bar → Ready ✓. The heading ("Shortcut
+   does the rest."), the five-chore list and the line under it are left out on phones. Desktop: the five chores as before. */
+.lp-root .lx-in-feats { display: none; }
+@media (max-width: 960px) {
+  .lp-root #intro .lx-in-sc h3, .lp-root #intro .lx-in-sc > ul:not(.lx-in-feats), .lp-root #intro .lx-in-sc .lx-in-foot-sc { display: none; }
+  .lp-root #intro .lx-in-sc { gap: 8px; padding: 10px 10px 11px; border-radius: 14px; }
+  .lp-root #intro .lx-in-feats {
+    flex: 1 0 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin: 0; padding: 0; list-style: none;
+  }
+  .lp-root #intro .lx-in-feats li {
+    display: flex; align-items: center; gap: 5px; min-width: 0; padding: 5px 6px; border-radius: 8px;
+    font-size: 11px; font-weight: 650; line-height: 1.1; white-space: nowrap; color: var(--text);
+    background: color-mix(in srgb, var(--logo, #c8ff00) 7%, rgba(255,255,255,.02));
+    border: 1px solid color-mix(in srgb, var(--logo, #c8ff00) 18%, transparent);
+    opacity: 0; transform: translateY(5px) scale(.96);
+    transition: opacity .35s ease, transform .45s cubic-bezier(.2,1.4,.4,1);
+    transition-delay: calc(var(--d, 0s) + .35s + var(--i) * .12s);
+  }
+  .lp-root #intro .lx-in-feats li > svg:first-child { flex: none; width: 12px; height: 12px; color: var(--logo, #c8ff00); }
+  .lp-root #intro .lx-in-sc.in .lx-in-feats li { opacity: 1; transform: none; }
+  /* Exporting: the full width — its bar fills once the features are in, then Ready and a tick */
+  .lp-root #intro .lx-in-feats .lx-in-feats-export { grid-column: 1 / -1; gap: 6px; padding: 6px 7px; }
+  .lp-root #intro .lx-in-feats-bar { position: relative; flex: 1; min-width: 20px; height: 5px; border-radius: 999px; background: rgba(255,255,255,.08); overflow: hidden; }
+  .lp-root #intro .lx-in-feats-bar i {
+    position: absolute; inset: 0; border-radius: inherit;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--logo, #c8ff00) 55%, transparent), var(--logo, #c8ff00));
+    transform: scaleX(0); transform-origin: left center; transition: transform 1s cubic-bezier(.55,0,.25,1) calc(var(--d, 0s) + 1.5s);
+  }
+  .lp-root #intro .lx-in-feats-export b {
+    font-size: 10.5px; font-weight: 800; color: var(--logo, #c8ff00);
+    opacity: 0; transition: opacity .3s ease calc(var(--d, 0s) + 2.5s);
+  }
+  .lp-root #intro .lx-in-feats-tick { flex: none; width: 12px; height: 12px; overflow: visible; }
+  .lp-root #intro .lx-in-feats-tick path {
+    fill: none; stroke: var(--logo, #c8ff00); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round;
+    stroke-dasharray: 20; stroke-dashoffset: 20; transition: stroke-dashoffset .45s cubic-bezier(.65,0,.35,1) calc(var(--d, 0s) + 2.55s);
+  }
+  .lp-root #intro .lx-in-sc.in .lx-in-feats-bar i { transform: none; }
+  .lp-root #intro .lx-in-sc.in .lx-in-feats-export b { opacity: 1; }
+  .lp-root #intro .lx-in-sc.in .lx-in-feats-tick path { stroke-dashoffset: 0; }
+}
+@media (max-width: 960px) and (prefers-reduced-motion: reduce) {
+  .lp-root #intro .lx-in-feats li, .lp-root #intro .lx-in-feats-bar i, .lp-root #intro .lx-in-feats-export b, .lp-root #intro .lx-in-feats-tick path {
+    opacity: 1; transform: none; stroke-dashoffset: 0; transition: none;
+  }
+}
+@media (max-width: 960px) {
+  /* (more specific than the earlier ".lx-in-sc ul" list rules, so the chips sit two to a row) */
+  .lp-root #intro .lx-in-sc ul.lx-in-feats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
+  .lp-root #intro .lx-in-sc ul.lx-in-feats li { display: flex; grid-template-columns: none; padding: 5px 6px; gap: 5px; font-size: 11px; border-radius: 8px; }
+  .lp-root #intro .lx-in-sc ul.lx-in-feats .lx-in-feats-export { grid-column: 1 / -1; padding: 6px 7px; gap: 6px; }
+}
+@media (max-width: 374px) {
+  .lp-root #intro .lx-in-sc ul.lx-in-feats li { font-size: 10.5px; padding: 5px 5px; gap: 4px; }
+}
+@media (max-width: 960px) {
+  /* (the card a little wider, so "Moment picks" and "Auto framing" fit their chips) */
+  .lp-root #intro .lx-in-split { grid-template-columns: minmax(0, .82fr) minmax(0, 1.6fr); }
+}
+/* (user 2026-11-28) section 3 on phones, symmetrical: equal room above the label + headline, between them and the
+   panda + card, between those and the struck-out lines, and below the lines (the headline comes down off the bar, the
+   lines come up from the foot) */
+@media (max-width: 960px) {
+  .lp-root #intro .lx-in-head { margin-top: auto; }
+  .lp-root #intro .lx-in-gone { margin-bottom: auto; }
+}
+
+/* (user 2026-11-28: "the headings should be at the top of their sections") phones: The Problem's label + headline and
+   Introducing Shortcut's label + headline sit at the top of their section, a fixed margin below the bar; the room below
+   is shared equally between the rest */
+@media (max-width: 960px) {
+  /* The Problem: headline · gap · card · gap · question · gap */
+  .lp-root #problem .section-inner.lx-pb { grid-template-rows: auto 1fr auto 1fr auto 1fr; padding-top: 20px; }
+  .lp-root #problem .lx-pb-main { grid-row: 1 / 4; }
+  .lp-root #problem .lx-pb-turn { grid-row: 5; }
+  /* Introducing Shortcut: headline · gap · panda + card · gap · struck-out lines · gap */
+  .lp-root #intro .section-inner.lx-in { padding-top: 20px; }
+  .lp-root #intro .lx-in-head { margin-top: 0; }
+}
+@media (max-width: 960px) and (max-height: 700px) {
+  .lp-root #problem .section-inner.lx-pb { padding-top: 16px; }
+  .lp-root #intro .section-inner.lx-in { padding-top: 16px; }
+}
+
+/* ── Phones: Shortcut's part, calm (user 2026-11-28: "remove the label, add two features, the neon is too much —
+   redesign it, and animate each feature's icon") ── a quiet glass card: no label, no lime; ten features as soft chips
+   (white icons, grey edges), each icon with its own small loop once the card has come in (the sparkle twinkles, the
+   frame pulses, the face looks round, the corners stretch, the captions type, the palette sways, the layout flips, the
+   scissors snip, the film runs, the mic pulses); then Exporting with a white render bar → Ready ✓. */
+@media (max-width: 960px) {
+  .lp-root #intro .lx-in-sc .lx-in-tag { display: none; }
+  .lp-root #intro .lx-in-sc {
+    padding: 10px; border-radius: 16px;
+    border: 1px solid rgba(255,255,255,.1);
+    background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.015));
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 24px 50px -30px rgba(0,0,0,.9);
+  }
+  .lp-root #intro .lx-in-sc ul.lx-in-feats li {
+    color: color-mix(in srgb, var(--text) 90%, transparent);
+    background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08);
+  }
+  .lp-root #intro .lx-in-feats li > svg:first-child {
+    color: color-mix(in srgb, var(--text) 82%, transparent);
+    transform-box: fill-box; transform-origin: 50% 50%;
+  }
+  /* the export: white, quiet */
+  .lp-root #intro .lx-in-feats-bar i { background: linear-gradient(90deg, rgba(255,255,255,.25), rgba(255,255,255,.9)); }
+  .lp-root #intro .lx-in-feats-export b { color: var(--text); }
+  .lp-root #intro .lx-in-feats-tick path { stroke: var(--text); }
+
+  /* each icon's own little loop (only once the card is in; staggered so they don't move together) */
+  .lp-root #intro .lx-in-sc.in .lx-in-feats li > svg:first-child { animation: var(--ia) var(--idur, 2.4s) ease-in-out calc(var(--d, 0s) + 1.4s + var(--i) * .17s) infinite; }
+  .lp-root #intro .lx-in-feats li:nth-child(1)  { --ia: lx-ic-twinkle; --idur: 2.4s; }   /* Moment picks · sparkles */
+  .lp-root #intro .lx-in-feats li:nth-child(2)  { --ia: lx-ic-pulse;   --idur: 2s; }     /* Auto framing · frame */
+  .lp-root #intro .lx-in-feats li:nth-child(3)  { --ia: lx-ic-look;    --idur: 2.6s; }   /* Subjects · face */
+  .lp-root #intro .lx-in-feats li:nth-child(4)  { --ia: lx-ic-stretch; --idur: 2.2s; }   /* Resizing · corners */
+  .lp-root #intro .lx-in-feats li:nth-child(5)  { --ia: lx-ic-type;    --idur: 1.8s; }   /* Captions */
+  .lp-root #intro .lx-in-feats li:nth-child(6)  { --ia: lx-ic-sway;    --idur: 2.8s; }   /* Brand kits · palette */
+  .lp-root #intro .lx-in-feats li:nth-child(7)  { --ia: lx-ic-flip;    --idur: 3.2s; }   /* Layouts */
+  .lp-root #intro .lx-in-feats li:nth-child(8)  { --ia: lx-ic-snip;    --idur: 1.6s; }   /* Cleanup · scissors */
+  .lp-root #intro .lx-in-feats li:nth-child(9)  { --ia: lx-ic-run;     --idur: 2.4s; }   /* B-rolls · film */
+  .lp-root #intro .lx-in-feats li:nth-child(10) { --ia: lx-ic-pulse;   --idur: 1.6s; }   /* Voiceover · mic */
+  .lp-root #intro .lx-in-feats .lx-in-feats-export { --ia: lx-ic-send; --idur: 2.6s; }   /* Exporting · send */
+}
+@keyframes lx-ic-twinkle { 0%, 70%, 100% { transform: none; } 80% { transform: scale(1.3) rotate(18deg); } 90% { transform: scale(.9) rotate(-6deg); } }
+@keyframes lx-ic-pulse   { 0%, 100% { transform: scale(1); } 50% { transform: scale(.82); } }
+@keyframes lx-ic-look    { 0%, 100% { transform: translateX(0); } 30% { transform: translateX(-1.5px); } 60% { transform: translateX(1.5px); } }
+@keyframes lx-ic-stretch { 0%, 60%, 100% { transform: scale(1); } 75% { transform: scale(1.25); } }
+@keyframes lx-ic-type    { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+@keyframes lx-ic-sway    { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-14deg); } 75% { transform: rotate(14deg); } }
+@keyframes lx-ic-flip    { 0%, 55% { transform: rotateY(0); } 80%, 100% { transform: rotateY(180deg); } }
+@keyframes lx-ic-snip    { 0%, 40%, 100% { transform: rotate(0); } 55% { transform: rotate(-22deg); } 70% { transform: rotate(4deg); } }
+@keyframes lx-ic-run     { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.5px) rotate(-6deg); } }
+@keyframes lx-ic-send    { 0%, 70%, 100% { transform: none; } 82% { transform: translate(2px, -2px); opacity: .6; } 90% { transform: translate(-1px, 1px); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .lp-root #intro .lx-in-feats li > svg:first-child { animation: none !important; } }
+
+/* (user 2026-11-28) phones, section 3:
+   · the struck-out lines are struck in lime, not red
+   · under the panda: "Shortcut has →", the arrow nudging towards the features
+   · the "Introducing Shortcut" label stays at the top; "Meet Shortcut. / Your Shortcut to Short-Form." comes down into the
+     room between it and the panda + card (the header's wrapper steps aside so the label and the headline space out on
+     their own: equal room label → headline → panda + card → struck-out lines → foot) */
+@media (max-width: 960px) {
+  .lp-root #intro .lx-in-gone-t::after {
+    background: var(--logo, #c8ff00); box-shadow: 0 0 10px color-mix(in srgb, var(--logo, #c8ff00) 55%, transparent);
+  }
+  .lp-root #intro .lx-in-panda-arrow { display: inline-block; color: var(--text); font-weight: 800; animation: lx-cap-nudge 1.6s ease-in-out infinite; }
+  .lp-root #intro .lx-in-head { display: contents; }
+  .lp-root #intro .lx-in-eyebrow { order: 1; margin: 0; }
+  .lp-root #intro .lx-in-title { order: 1; margin-top: auto; }
+  .lp-root #intro .lx-in-split { margin-top: auto; }
+}
+@keyframes lx-cap-nudge { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(4px); } }
+@media (prefers-reduced-motion: reduce) { .lp-root #intro .lx-in-panda-arrow { animation: none; } }
+/* (user 2026-11-28) phones, The Problem: the label stays at the top; the headline comes down into the room between it and
+   the card — equal room label → headline → card → question → foot (the header's wrapper steps aside so the label and the
+   headline sit on the section's rows on their own) */
+@media (max-width: 960px) {
+  .lp-root #problem .section-inner.lx-pb { grid-template-rows: auto 1fr auto 1fr auto 1fr auto 1fr; }
+  .lp-root #problem .lx-pb-main { grid-row: 1 / 6; }
+  .lp-root #problem .lx-pb-head { display: contents; }
+  .lp-root #problem .lx-pb-eyebrow { grid-row: 1; justify-self: center; margin: 0; }
+  .lp-root #problem .lx-pb-title { grid-row: 3; text-align: center; }
+  .lp-root #problem .lx-pb-body { grid-row: 5; }
+  .lp-root #problem .lx-pb-turn { grid-row: 7; }
+}
+/* (user 2026-11-28) phones: the lime strike softer, so the words under it can still be read */
+@media (max-width: 960px) {
+  .lp-root #intro .lx-in-gone-t::after {
+    background: color-mix(in srgb, var(--logo, #c8ff00) 55%, transparent); height: 1.5px;
+    box-shadow: 0 0 6px color-mix(in srgb, var(--logo, #c8ff00) 25%, transparent);
+  }
+}
+@media (max-width: 960px) {
+  .lp-root #intro .lx-in-gone-t::after { background: color-mix(in srgb, var(--logo, #c8ff00) 40%, transparent); box-shadow: none; }
+  /* (the struck words stay readable: a little brighter than before once struck) */
+  .lp-root #intro .lx-in-gone.in .lx-in-gone-t { color: color-mix(in srgb, var(--text) 66%, transparent); }
+}
+
+/* ── Section labels, one style everywhere (user 2026-11-28: "redesign these headings, the same style in all sections";
+   phones and desktop) ── a dark glass pill, a small lime dot that softly pulses, then the name in white. Every section's
+   label carries .lp-label (The Problem, Introducing Shortcut, How it works, Features, Why Shortcut?, Who is it for?,
+   Pricing, FAQ); their old looks (the red dot, the logo mark, the ? icon, the light sweep, plain grey text) are set aside.
+   (The :is(#…) keeps it above each section's own label rules.) */
+.lp-root :is(#problem, #intro, #process, #features, #trends, #proof, #pricing, #faq) .lp-label {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: auto;
+  padding: 6px 14px 6px 11px; border-radius: 999px;
+  font-size: 13px; font-weight: 650; line-height: 1.2; letter-spacing: .01em; text-transform: none;
+  color: color-mix(in srgb, var(--text) 88%, transparent);
+  background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.025));
+  border: 1px solid rgba(255,255,255,.11);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 10px 26px -18px rgba(0,0,0,.9);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+.lp-root :is(#problem, #intro, #process, #features, #trends, #proof, #pricing, #faq) .lp-label::before {
+  content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--logo, #c8ff00); box-shadow: 0 0 10px color-mix(in srgb, var(--logo, #c8ff00) 70%, transparent);
+  animation: lp-label-dot 2.2s ease-in-out infinite;
+}
+.lp-root :is(#problem, #intro, #process, #features, #trends, #proof, #pricing, #faq) .lp-label::after { content: none; display: none; }
+/* (their old decorations) */
+.lp-root .lp-label > i, .lp-root .lp-label .lx-in-eyebrow-mark, .lp-root .lp-label > svg { display: none; }
+.lp-root .lp-label .lx-in-eyebrow-a, .lp-root .lp-label b { margin: 0; font-weight: inherit; color: inherit; }
+.lp-root .lp-label .lx-in-eyebrow-a { margin-right: .28em; }
+@keyframes lp-label-dot { 50% { opacity: .45; box-shadow: 0 0 4px color-mix(in srgb, var(--logo, #c8ff00) 40%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .lp-root .lp-label::before { animation: none; } }
+@media (max-width: 960px) {
+  .lp-root :is(#problem, #intro, #process, #features, #trends, #proof, #pricing, #faq) .lp-label { padding: 5px 12px 5px 10px; font-size: 12.5px; gap: 7px; }
+}
+/* (the dot keeps its own space, so "Introducing Shortcut" — two words in two spans — gets a normal word space) */
+.lp-root :is(#problem, #intro, #process, #features, #trends, #proof, #pricing, #faq) .lp-label { gap: 0; }
+.lp-root :is(#problem, #intro, #process, #features, #trends, #proof, #pricing, #faq) .lp-label::before { margin-right: 8px; }
+@media (max-width: 960px) {
+  .lp-root :is(#problem, #intro, #process, #features, #trends, #proof, #pricing, #faq) .lp-label { gap: 0; }
+  .lp-root :is(#problem, #intro, #process, #features, #trends, #proof, #pricing, #faq) .lp-label::before { margin-right: 7px; }
+}
+
+/* (user 2026-11-28, a try: "use the same background as section 1 for sections 2 and 3") phones: The Problem and
+   Introducing Shortcut on the hero's ground — the near-black base, the soft glow rising from the bottom centre and the
+   diagonal beam (the same layers as .hero-shade) — instead of the flat, slightly lighter sheet colour */
+@media (max-width: 960px) {
+  .lp-root #problem.sheet, .lp-root #intro.section-wrap {
+    background-color: var(--bg);
+    background-image:
+      radial-gradient(ellipse 50% 60% at 50% 100%, var(--beam), transparent 70%),
+      linear-gradient(118deg, transparent 40%, var(--beam) 50%, transparent 60%);
+    background-repeat: no-repeat;
+  }
+}
+
+/* ── Phones: one ground for the whole page, the light zig-zagging down it (user 2026-11-28: "section 1's light runs top
+   right → bottom left; reverse it in the next, and so on for every section") ── every section on the hero's near-black
+   with its soft glow rising from the bottom centre, and the diagonal beam alternating: ⟋ (118deg, as the hero) in
+   sections 1, 3, 5, 7, 9 and ⟍ (62deg, mirrored) in 2, 4, 6, 8, 10. The closing section already draws the beam
+   itself (::before), so there it's only turned. The footer keeps its own look. */
+@media (max-width: 960px) {
+  .lp-root :is(#problem.sheet, #intro.section-wrap, #process, #features, #trends, #proof, #pricing, #faq) {
+    background-color: var(--bg);
+    background-image:
+      radial-gradient(ellipse 50% 60% at 50% 100%, var(--beam), transparent 70%),
+      linear-gradient(var(--beam-a, 118deg), transparent 40%, var(--beam) 50%, transparent 60%);
+    background-repeat: no-repeat;
+  }
+  .lp-root :is(#problem, #process, #trends, #pricing) { --beam-a: 62deg; }
+  .lp-root :is(#intro, #features, #proof, #faq) { --beam-a: 118deg; }
+  .lp-root .cta-section::before {
+    background:
+      radial-gradient(ellipse 50% 60% at 50% 100%, var(--beam), transparent 70%),
+      linear-gradient(62deg, transparent 40%, var(--beam) 50%, transparent 60%);
+  }
+}

@@ -131,7 +131,7 @@ export function HeroEditor() {
   const exportRef = useRef<HTMLSpanElement>(null)
   const clock = useRef({ t: 0, still: false, draw: (_t: number) => {} })
   const [v, setV] = useState<View>(() => view(0))
-  const [src, setSrc] = useState(false)         // the video loads only on a desktop screen, once near
+  const [src, setSrc] = useState(false)         // the video loads once near
 
   useEffect(() => {
     const root = rootRef.current, video = videoRef.current, canvas = canvasRef.current
@@ -219,12 +219,11 @@ export function HeroEditor() {
       return
     }
 
-    // Load the video only on a desktop-size screen, and only once the hero is near
-    const desk = window.matchMedia('(min-width: 961px)')
+    // Load the video only once the hero is near (phones too since 2026-11-27: they show this editor now, not the panda)
     let visible = false
     const io = new IntersectionObserver(([e]) => {
       visible = e.isIntersecting
-      if (visible && desk.matches) setSrc(true)
+      if (visible) setSrc(true)
     }, { rootMargin: '200px' })
     io.observe(root)
     poster.onload = () => draw(clock.current.t)
@@ -236,7 +235,7 @@ export function HeroEditor() {
       const dt = Math.min(now - last, 250)
       last = now
       // (off screen, or the next section fully over the hero: it stops)
-      const hidden = !visible || !desk.matches || !!root.closest('[data-covered]')
+      const hidden = !visible || !!root.closest('[data-covered]')
       if (hidden) { if (!video.paused) video.pause(); return }
       if (video.paused && video.readyState >= 2) video.play().catch(() => {})
       // the tour waits for the picture before it starts

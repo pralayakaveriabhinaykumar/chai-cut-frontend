@@ -198,7 +198,7 @@ export function PricingSection({
         <InteractiveStarfield mousePosition={mousePosition} containerRef={containerRef} />
         <div className="relative z-10 mx-auto max-w-7xl px-6">
           <div className="mx-auto mb-8 max-w-5xl text-center">
-            {eyebrow && <p className="mb-4 text-base font-medium text-[var(--muted)]">{eyebrow}</p>}
+            {eyebrow && <p className="lp-label mb-4 text-base font-medium text-[var(--muted)]">{eyebrow}</p>}
             <h2 className="section-title">{title}</h2>
             <p className="mt-4 whitespace-pre-line text-lg text-[var(--muted)]">{description}</p>
           </div>

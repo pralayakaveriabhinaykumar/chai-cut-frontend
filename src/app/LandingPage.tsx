@@ -11,7 +11,6 @@ import { BrandLogo } from '@/components/ui/brand-logo'
 import { CircularCarousel, type CarouselItem } from '@/components/ui/circular-carousel'
 import { SectionTransition } from '@/components/ui/section-transition'
 import { FaqSection, type FaqItem } from '@/components/ui/faq-section'
-import { HeroSplit } from '@/components/landing/hero-split'
 import { HeroEditor } from '@/components/landing/hero-editor'
 import { FeatureShowcase } from '@/components/landing/feature-showcase'
 import { FlyIn } from '@/components/landing/fly-in'
@@ -170,6 +169,15 @@ const EXPLORE = [
   { label: 'Features', href: '#features' },
   { label: 'Trends', href: '#trends' },
   { label: 'Pricing', href: '#pricing' },
+]
+// The phone menu's links (user 2026-11-28: "Trends" is now "Why Shortcut?", FAQ added). EXPLORE above stays as it is:
+// it also lists the sections the page keeps within one screen.
+const MENU_LINKS = [
+  { label: 'How it works', href: '#process' },
+  { label: 'Features', href: '#features' },
+  { label: 'Why Shortcut?', href: '#trends' },
+  { label: 'Pricing', href: '#pricing' },
+  { label: 'FAQ', href: '#faq' },
 ]
 // The desktop bar's links, after Home (user's website copy, 2026-11-20: Home · How It Works · Features ·
 // Pricing · FAQ, and Get Started)
@@ -363,6 +371,7 @@ function HeroLangs() {
  */
 const LEAD_BASE = 'Turn long videos into short-form content. '
 const LEAD_WORD = 'Faster.'
+const LEAD_KEEP = 'short-form'
 function HeroLead() {
   const full = LEAD_BASE.length + LEAD_WORD.length
   const [typed, setTyped] = useState(0)
@@ -394,11 +403,15 @@ function HeroLead() {
   }, [full])
   const base = LEAD_BASE.slice(0, typed)
   const word = typed > LEAD_BASE.length ? LEAD_WORD.slice(0, typed - LEAD_BASE.length) : ''
+  // phones: "short-form" is kept on one line (.lead-keep), so it never breaks as "short- / form" (2026-11-27)
+  const keepAt = LEAD_BASE.indexOf(LEAD_KEEP), keepEnd = keepAt + LEAD_KEEP.length
   return (
     <>
       <span className="sr-only">{LEAD_BASE}10× faster.</span>
       <span aria-hidden="true">
-        {base}
+        {base.slice(0, keepAt)}
+        {typed > keepAt && <span className="lead-keep">{base.slice(keepAt, keepEnd)}</span>}
+        {base.slice(keepEnd)}
         {word && (
           <strong className="faster" data-hi={n > 0 || undefined} data-done={done || undefined}>
             <span className="faster-num">{n > 0 ? `${n}×` : ''}</span><span className="faster-word">{n > 0 ? 'faster.' : word}</span>
@@ -527,9 +540,12 @@ export function LandingPage() {
     if (!menuOpen) return
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenuOpen(false) }
     const onResize = () => { if (window.innerWidth >= 960) setMenuOpen(false) }
+    // a tap anywhere outside the bar and its menu closes it (2026-11-28)
+    const onDown = (e: PointerEvent) => { if (!(e.target as Element | null)?.closest('.lp-nav')) setMenuOpen(false) }
     window.addEventListener('keydown', onKey)
     window.addEventListener('resize', onResize)
-    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('resize', onResize) }
+    window.addEventListener('pointerdown', onDown)
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('resize', onResize); window.removeEventListener('pointerdown', onDown) }
   }, [menuOpen])
 
   useEffect(() => {
@@ -548,7 +564,8 @@ export function LandingPage() {
   }, [tunnel])
 
   return (
-    <div className="lp-root">
+    <div className={`lp-root${DESIGN_GUIDE ? ' lp-sections' : ''}`}>
+      {DESIGN_GUIDE && <SectionGuide />}
 
       {/* ── NAV ── */}
       <nav className={`lp-nav${pastHero ? ' nav-past-hero' : ''}`} data-scrolled={scrolled || undefined}>
@@ -587,10 +604,12 @@ export function LandingPage() {
           </button>
         </div>
         {menuOpen && (
+          // (user 2026-11-28, cleaned up: the sections by their current names, FAQ added, Log in left out — it's in the
+          // bar — and Get Started at the bottom; a solid panel)
           <div id="nav-menu" className="nav-menu">
             <a href="#" onClick={goHome}>Home</a>
-            {EXPLORE.map(l => <a key={l.href} href={l.href} onClick={e => goToSection(e, l.href)}>{l.label}</a>)}
-            <Link href="/login" className="nav-menu-login">Log in</Link>
+            {MENU_LINKS.map(l => <a key={l.href} href={l.href} onClick={e => goToSection(e, l.href)}>{l.label}</a>)}
+            <Link href="/signup" className="nav-menu-cta" onClick={() => setMenuOpen(false)}>Get Started</Link>
           </div>
         )}
       </nav>
@@ -620,13 +639,8 @@ export function LandingPage() {
           <p className="hero-sub hero-lead intro" style={{ '--d': '.5s' } as React.CSSProperties}>
             <HeroLead />
           </p>
-          {/* (phones keep the two lines here; desktop has them, shorter and animated, under the buttons) */}
-          <p className="hero-body hero-copy-phone intro" style={{ '--d': '.6s' } as React.CSSProperties}>
-            Got a podcast, interview, stream or long video? Turn it into <span className="whitespace-nowrap">ready-to-post</span> Instagram Reels, YouTube Shorts and TikToks in minutes.
-          </p>
-          <p className="hero-note hero-copy-phone intro" style={{ '--d': '.68s' } as React.CSSProperties}>
-            You choose the moments. Shortcut takes care of the editing.
-          </p>
+          {/* (phones had two more lines here, "Got a podcast, interview…" and "You choose the moments. Shortcut takes
+              care of the editing." — both removed, user 2026-11-27; desktop never showed them) */}
           <div className="hero-ctas intro" style={{ '--d': '.78s' } as React.CSSProperties}>
             <Link href="/signup" className="btn-nav-primary arrow-btn hero-cta-main">
               <span className="arrow-btn-label">Get Started</span>
@@ -650,15 +664,13 @@ export function LandingPage() {
           </div>
         </div>
 
-        {/* recedes with the headline as the next section slides over. Desktop: the real editor turning the
-            wide video into a vertical short (HeroEditor); phones keep their animation (HeroSplit) */}
+        {/* recedes with the headline as the next section slides over: the real editor turning the wide video into a
+            vertical short (HeroEditor). Phones show the same editor too (user 2026-11-27: "the same video of laptop
+            view"; they had the panda animation, HeroSplit, before) */}
         <div className="hero-visual">
           {/* (in with the headline, not after it — user 2026-11-21: the editor's place sat empty for a second) */}
           <div className="intro hero-visual-desk" style={{ '--d': '.3s' } as React.CSSProperties}>
             <HeroEditor />
-          </div>
-          <div className="intro hero-visual-phone" style={{ '--d': '.9s' } as React.CSSProperties}>
-            <HeroSplit />
           </div>
         </div>
 
@@ -683,7 +695,7 @@ export function LandingPage() {
       <div id="process" className="section-wrap hiw-static">
         <section className="section-inner">
           <div className="section-head">
-            <p className="section-eyebrow">How it works</p>
+            <p className="section-eyebrow lp-label">How it works</p>
             <h2 className="section-title hiw-title"><span>Five Simple Steps.</span> <span>One Ready-to-Post Short.</span></h2>
           </div>
           {/* (user 2026-11-22: "design the cards and placement in a creative way", same words) the five steps as the
@@ -725,7 +737,7 @@ export function LandingPage() {
       <SectionTransition id="features" variant="zoom" className="section-wrap">
         <section className="section-inner">
           <div className="section-head reveal">
-            <p className="section-eyebrow">Features</p>
+            <p className="section-eyebrow lp-label">Features</p>
             <h2 className="section-title two-line-title"><span>Everything You Need.</span> <span>Without the Editing Hassle.</span></h2>
           </div>
           <div data-fit className="reveal">
@@ -873,6 +885,54 @@ export function LandingPage() {
       </footer>
     </div>
   )
+}
+
+/**
+ * Design guide (user 2026-11-28, mobile pass: "keep a border color for each section so it will be easy to design"):
+ * only on the dev server (`next dev`), never on QA or the live site. Each section gets its own coloured outline (drawn
+ * inside its edge, so nothing moves; styles: .lp-sections in landing.css) and a pill in the corner names the section
+ * under the middle of the screen, in the same colour. Turn it off: set DESIGN_GUIDE to false.
+ */
+const DESIGN_GUIDE = process.env.NODE_ENV === 'development'
+const GUIDE_SECTIONS = [
+  { sel: '.lp-nav', name: 'Top bar', color: '#ff3b30' },
+  { sel: '.hero', name: '1 · Hero', color: '#ff9500', done: true },   // (finished: no outline, no pill — user 2026-11-28)
+  { sel: '#problem', name: '2 · The Problem', color: '#ffd60a', done: true },
+  { sel: '#intro', name: '3 · Introducing Shortcut', color: '#34c759', done: true },
+  { sel: '#process', name: '4 · How it works', color: '#00c7be' },
+  { sel: '#features', name: '5 · Features', color: '#0a84ff' },
+  { sel: '#trends', name: '6 · Why Shortcut?', color: '#5e5ce6' },
+  { sel: '#proof', name: '7 · Who is it for?', color: '#bf5af2' },
+  { sel: '#pricing', name: '8 · Pricing', color: '#ff2d55' },
+  { sel: '#faq', name: '9 · FAQ', color: '#ac8e68' },
+  { sel: '.cta-section', name: '10 · Closing', color: '#ffffff' },
+  { sel: '.lp-footer', name: 'Footer', color: '#8e8e93' },
+]
+function SectionGuide() {
+  const [at, setAt] = useState(-1)
+  useEffect(() => {
+    let raf = 0
+    const check = () => {
+      raf = 0
+      const mid = window.innerHeight / 2
+      // the last section whose box holds the middle of the screen (the bar only when nothing else does)
+      let found = -1
+      GUIDE_SECTIONS.forEach((s, i) => {
+        if (i === 0) return
+        const r = document.querySelector(`.lp-root ${s.sel}`)?.getBoundingClientRect()
+        if (r && r.top <= mid && r.bottom > mid) found = i
+      })
+      setAt(found)
+    }
+    const on = () => { if (!raf) raf = requestAnimationFrame(check) }
+    check()
+    window.addEventListener('scroll', on, { passive: true })
+    window.addEventListener('resize', on)
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('scroll', on); window.removeEventListener('resize', on) }
+  }, [])
+  const s = GUIDE_SECTIONS[at]
+  if (!s || s.done) return null
+  return <div className="lp-guide-pill" style={{ '--c': s.color } as React.CSSProperties} aria-hidden="true">{s.name}</div>
 }
 
 // Footer columns drift down out of a blur as the footer scrolls into view, one after another

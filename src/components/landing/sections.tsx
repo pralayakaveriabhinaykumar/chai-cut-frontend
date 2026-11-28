@@ -1,11 +1,18 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import Link from 'next/link'
 import { VelocityMarquee } from '@/components/ui/velocity-marquee'
 import { BrandLogo } from '@/components/ui/brand-logo'
-import { GraduationCap, Megaphone, Mic, MonitorPlay, MousePointerClick, Move, Scissors, Sparkles, Upload, User } from 'lucide-react'
+import { Captions, Columns2, Crop, Expand, Film, GraduationCap, Megaphone, Mic, MonitorPlay, MousePointerClick, Move, Palette, Scan, ScanFace, Scissors, Send, Sparkles, Upload, User } from 'lucide-react'
 import { LayoutGroup, motion } from 'framer-motion'
+import { PANDA_POSTER, phoneClipSrc } from '@/components/auth/panda'
+
+/** Phones (max 960px), kept live: it follows the window when its width changes (2026-11-28 — a page opened wide and
+    narrowed later kept the desktop behaviour until it was reloaded) */
+const PHONE_Q = '(max-width: 960px)'
+const phoneSub = (cb: () => void) => { const m = window.matchMedia(PHONE_Q); m.addEventListener('change', cb); return () => m.removeEventListener('change', cb) }
+function usePhone() { return useSyncExternalStore(phoneSub, () => window.matchMedia(PHONE_Q).matches, () => false) }
 
 /**
  * Landing-page sections for the "Turn every video into income" story (styles: .lx-* in
@@ -74,6 +81,7 @@ function useReplayReveal(ref: React.RefObject<HTMLElement | null>) {
  * round. Fully off screen, everything resets at once (resetInstant). Reduced motion: shown, still.
  */
 function useDirectionalReveal(ref: React.RefObject<HTMLElement | null>) {
+  const phone = usePhone()
   useEffect(() => {
     const root = ref.current
     if (!root) return
@@ -89,14 +97,17 @@ function useDirectionalReveal(ref: React.RefObject<HTMLElement | null>) {
       } else if (!en.isIntersecting && (e.classList.contains('in') || e.dataset.closing != null)) {
         delete e.dataset.closing; resetInstant(e, [e])
       }
-    }), { threshold: [0, 0.2], rootMargin: '0px 0px -6% 0px' })
+    }), { threshold: [0, 0.2], rootMargin: phone ? '0px' : '0px 0px -6% 0px' })   // (phones: reset only once fully off screen)
     els.forEach(e => io.observe(e))
     let lastY = window.scrollY, raf = 0
     const onScroll = () => {
       if (raf) return
       raf = requestAnimationFrame(() => {
         raf = 0
-        const y = window.scrollY, up = y < lastY, line = window.innerHeight * 0.8
+        // (phones, user 2026-11-28: nothing folds away while it's still on screen — a small bounce or finger movement
+        // upwards hid the lines at the foot of a one-screen section until you scrolled on; off screen, the observer above
+        // resets them, so they still play again next time)
+        const y = window.scrollY, up = y < lastY, line = phone ? Infinity : window.innerHeight * 0.8
         lastY = y
         for (const e of els) {
           const top = e.getBoundingClientRect().top
@@ -111,17 +122,26 @@ function useDirectionalReveal(ref: React.RefObject<HTMLElement | null>) {
     }
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => { io.disconnect(); window.removeEventListener('scroll', onScroll); cancelAnimationFrame(raf) }
-  }, [ref])
+  }, [ref, phone])
 }
+
+// Phones (user 2026-11-28: "an animation for the red going, so the user sees editing by hand takes time"): the card
+// runs as a clock — one chore after another, each bar fills white up to its planned line and then the red overtime
+// creeps on past it while its time counts up; longer chores take longer (CLOCK_MS_PER_MIN for every minute), and
+// "Actually took" counts with them, turning red as it passes the plan. Desktop keeps the quick version.
+const CLOCK_MS_PER_MIN = 22                     // 3h 40m of chores ≈ 4.8 s
+const GRIND_START = GRIND.map((_, i) => GRIND.slice(0, i).reduce((n, g) => n + g.min, 0))
 
 /** The chores, ticking in one by one, and the clock adding them up (once, when it comes into view) */
 function GrindCard() {
   const ref = useRef<HTMLDivElement>(null)
   const [on, setOn] = useState(false)
   const [total, setTotal] = useState(0)
+  const clock = usePhone()                      // phones: the clock version (minutes done so far = total)
   useEffect(() => {
     const el = ref.current
     if (!el) return
+    const isClock = clock
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { setOn(true); setTotal(GRIND_TOTAL); return }
     let raf = 0, wait: ReturnType<typeof setTimeout> | null = null
     let shown = false
@@ -136,9 +156,23 @@ function GrindCard() {
         }
         return
       }
-      if (shown || e.intersectionRatio < 0.35) return
+      // (phones: only once the whole card is on screen, so the clock is watched from its start)
+      if (shown || e.intersectionRatio < (isClock ? 0.9 : 0.35)) return
       shown = true
       setOn(true)
+      if (isClock) {
+        // the clock: steady minutes, so a 1h chore runs twice as long as a 30m one
+        wait = setTimeout(() => {
+          const start = performance.now(), ms = GRIND_TOTAL * CLOCK_MS_PER_MIN
+          const tick = (now: number) => {
+            const k = Math.min(1, (now - start) / ms)
+            setTotal(Math.round(GRIND_TOTAL * k))
+            if (k < 1) raf = requestAnimationFrame(tick)
+          }
+          raf = requestAnimationFrame(tick)
+        }, 450)
+        return
+      }
       // the clock starts as the rows land, and finishes with the last one
       wait = setTimeout(() => {
         const start = performance.now(), ms = 2800
@@ -149,12 +183,12 @@ function GrindCard() {
         }
         raf = requestAnimationFrame(tick)
       }, 350)
-    }, { threshold: [0, 0.35] })
+    }, { threshold: [0, 0.35, 0.9] })
     io.observe(el)
     return () => { io.disconnect(); cancelAnimationFrame(raf); if (wait) clearTimeout(wait) }
-  }, [])
+  }, [clock])
   return (
-    <div ref={ref} className="lx-grind" data-on={on || undefined} role="img"
+    <div ref={ref} className="lx-grind" data-on={on || undefined} data-clock={clock || undefined} role="img"
       aria-label={`Example: turning one video into five clips by hand — ${GRIND.map(g => `${g.task} ${hm(g.min)}`).join(', ')}; about ${hm(GRIND_TOTAL)} in total`}>
       <div className="lx-grind-head" aria-hidden="true">
         <span className="lx-grind-rec" />
@@ -167,16 +201,21 @@ function GrindCard() {
         <span><i className="lx-grind-sw-over" />Overtime</span>
       </div>
       <ul className="lx-grind-rows" aria-hidden="true">
-        {GRIND.map((g, i) => (
-          <li key={g.task} style={{
-            '--i': i, '--w': `${(g.min / GRIND_MAX) * 100}%`,
-            '--lim': `${(GRIND_LIMIT / GRIND_MAX) * 100}%`, '--lim-in': `${(GRIND_LIMIT / g.min) * 100}%`,
-          } as React.CSSProperties}>
-            <span className="lx-grind-task">{g.task}</span>
-            <span className="lx-grind-bar"><i /></span>
-            <span className="lx-grind-time">{hm(g.min)}</span>
-          </li>
-        ))}
+        {GRIND.map((g, i) => {
+          // (the clock version: how far this chore has got, from the minutes done so far)
+          const done = clock ? Math.max(0, Math.min(g.min, total - GRIND_START[i])) : g.min
+          return (
+            <li key={g.task} data-late={clock && done > GRIND_LIMIT ? '' : undefined} data-going={clock && done > 0 && done < g.min ? '' : undefined} style={{
+              '--i': i, '--w': `${(g.min / GRIND_MAX) * 100}%`,
+              '--lim': `${(GRIND_LIMIT / GRIND_MAX) * 100}%`, '--lim-in': `${(GRIND_LIMIT / g.min) * 100}%`,
+              '--p': done / g.min,
+            } as React.CSSProperties}>
+              <span className="lx-grind-task">{g.task}</span>
+              <span className="lx-grind-bar"><i /></span>
+              <span className="lx-grind-time">{hm(done)}</span>
+            </li>
+          )
+        })}
       </ul>
       {/* the total, as overtime (user, 2026-11-20): the clock counts up white; past the planned time it turns
           red, its bar runs past the planned line, and the overtime pops in and counts with it */}
@@ -207,6 +246,7 @@ function GrindCard() {
  */
 const PB_SEQUENCE_MS = 3400
 function useProblemTimeline(ref: React.RefObject<HTMLElement | null>) {
+  const phone = usePhone()
   useEffect(() => {
     const root = ref.current
     const main = root?.querySelector<HTMLElement>('.lx-pb-main')
@@ -218,6 +258,8 @@ function useProblemTimeline(ref: React.RefObject<HTMLElement | null>) {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { show(mainEls, true); show(turnEls, true); return }
 
     let mainIn = false, mainDone = false, turnSeen = false, closed = false, timer: ReturnType<typeof setTimeout> | null = null
+    // (phones, user 2026-11-28: the section is one screen, the question at its very foot — it comes while you're in the
+    // section, not only once you scroll on: any part of it on screen counts as seen)
     const maybeShowTurn = () => {
       // (the problem screen has played, or it is already above the screen: the question may come)
       const passed = main.getBoundingClientRect().bottom < 0
@@ -244,7 +286,7 @@ function useProblemTimeline(ref: React.RefObject<HTMLElement | null>) {
           maybeShowTurn()
         }
       } else {
-        if (e.isIntersecting && e.intersectionRatio >= 0.6) { turnSeen = true; maybeShowTurn() }
+        if (e.isIntersecting && (e.intersectionRatio >= 0.6 || phone)) { turnSeen = true; maybeShowTurn() }
         else if (!e.isIntersecting) { turnSeen = false; resetInstant(turn, turnEls) }
       }
     }), { threshold: [0, 0.15, 0.3, 0.6] })
@@ -274,7 +316,7 @@ function useProblemTimeline(ref: React.RefObject<HTMLElement | null>) {
     }
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => { io.disconnect(); if (timer) clearTimeout(timer); window.removeEventListener('scroll', onScroll); cancelAnimationFrame(raf) }
-  }, [ref])
+  }, [ref, phone])
 }
 
 /** The chores named in the copy, marked in the line (not links, just emphasis) */
@@ -299,7 +341,7 @@ export function ProblemSection() {
       {/* (the problem alone fills the first screen; the question comes after it, user 2026-11-21) */}
       <div className="lx-pb-main">
       <header className="lx-pb-head">
-        <p className="lx-pb-eyebrow" data-anim="down"><i aria-hidden="true" />The problem</p>
+        <p className="lx-pb-eyebrow lp-label" data-anim="down"><i aria-hidden="true" />The problem</p>
         <h2 className="lx-pb-title">
           {/* (the mask is what's watched: the line itself starts hidden below it) */}
           <span className="lx-pb-mask" data-anim="rise" style={d(0.08)}><span>Creating Content Is Easy.</span></span>
@@ -715,16 +757,110 @@ const YOU_DO = [
   { Icon: Move, text: 'Guide the frame' },
 ]
 const SHORTCUT_DOES = ['Cropping', 'Resizing', 'Adjusting frames', 'Adding captions', 'Exporting']
+// (phones, user 2026-11-28: Shortcut's part redesigned as tiles, each with its own icon; the last one, Exporting, shows a
+// render bar ending "Ready". Desktop hides these: .lx-in-sc-ico / .lx-in-sc-bar)
+const SHORTCUT_ICONS = [Crop, Expand, ScanFace, Captions, Send]
+// Phones (user 2026-11-28: "include every major feature, simple and short"): Shortcut's part lists the product's main
+// features as small chips, two to a row, then Exporting with its render bar → Ready. Desktop keeps the copy's five chores.
+const SHORTCUT_FEATURES_PHONE = [
+  { Icon: Sparkles, text: 'Moment picks' },
+  { Icon: Scan, text: 'Auto framing' },
+  { Icon: ScanFace, text: 'Subjects' },
+  { Icon: Expand, text: 'Resizing' },
+  { Icon: Captions, text: 'Captions' },
+  { Icon: Palette, text: 'Brand kits' },
+  { Icon: Columns2, text: 'Layouts' },
+  { Icon: Scissors, text: 'Cleanup' },
+  { Icon: Film, text: 'B-rolls' },
+  { Icon: Mic, text: 'Voiceover' },
+]
+/**
+ * Phones (user 2026-11-28: "the lines at the foot only show when we scroll past the section — have them while we're in
+ * it"): the pieces at the very foot of a one-screen section play in as soon as half the section is on screen, instead of
+ * waiting until they themselves are well inside the screen (the reveals ignore the bottom strip of the screen).
+ */
+function usePhoneFootReveal(ref: React.RefObject<HTMLElement | null>, selector: string) {
+  const phone = usePhone()
+  useEffect(() => {
+    const root = ref.current
+    if (!root || !phone) return
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const els = Array.from(root.querySelectorAll<HTMLElement>(selector))
+    const io = new IntersectionObserver(([e]) => {
+      if (e.isIntersecting && e.intersectionRatio >= 0.5) els.forEach(el => { delete el.dataset.closing; el.classList.add('in') })
+    }, { threshold: [0, 0.5] })
+    io.observe(root)
+    return () => io.disconnect()
+  }, [ref, selector, phone])
+}
+
+/**
+ * Phones (user 2026-11-28: "use our panda in place of Your part — this way users understand Shortcut with our panda
+ * signature"): the brand panda from the sign-in page stands for you, under the same soft spotlight, its black background
+ * blended away. As the section comes into view it turns its head towards Shortcut's part ("watch-in", then the
+ * "watch-loop" — it keeps watching while Shortcut works), and starts again each time the section comes back. Under it,
+ * "Shortcut has →" (pointing at the features; user 2026-11-28, was "You pick the moment."). Desktop doesn't show it (keeps "Your part"); motion turned down: the still panda.
+ */
+function IntroPanda() {
+  const phone = usePhone()
+  const ref = useRef<HTMLDivElement>(null)
+  const inRef = useRef<HTMLVideoElement>(null)
+  const loopRef = useRef<HTMLVideoElement>(null)
+  const [on, setOn] = useState(false)          // phones, motion on: the clips are loaded (just before the section arrives)
+  const [want, setWant] = useState(false)      // most of it is on screen: turn and watch
+  const [stage, setStage] = useState<'still' | 'in' | 'loop'>('still')
+  useEffect(() => {
+    if (!phone || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const el = ref.current
+    if (!el) return
+    const near = new IntersectionObserver(([e]) => { if (e.isIntersecting) setOn(true) }, { rootMargin: '300px 0px' })
+    const view = new IntersectionObserver(([e]) => {
+      if (e.isIntersecting && e.intersectionRatio >= 0.6) setWant(true)
+      else if (!e.isIntersecting) setWant(false)   // (fully off screen: back to the start, to turn and watch again next time)
+    }, { threshold: [0, 0.6] })
+    near.observe(el); view.observe(el)
+    return () => { near.disconnect(); view.disconnect() }
+  }, [phone])
+  useEffect(() => {
+    const v = inRef.current
+    if (!on || !v) return
+    if (!want) { v.pause(); loopRef.current?.pause(); setStage('still'); return }
+    // (rewinding makes it "not ready" for a moment, so wait for canplay — which also comes after a seek — not loadeddata,
+    // which comes only once)
+    if (v.currentTime !== 0) v.currentTime = 0
+    const go = () => { setStage('in'); v.play().catch(() => {}) }
+    if (v.readyState >= 2 && !v.seeking) go(); else v.addEventListener('canplay', go, { once: true })
+    return () => v.removeEventListener('canplay', go)
+  }, [on, want])
+  const toLoop = () => { setStage('loop'); const l = loopRef.current; if (l) { l.currentTime = 0; l.play().catch(() => {}) } }
+  return (
+    <div ref={ref} className="lx-in-panda" aria-hidden="true">
+      <div className="lx-in-panda-box">
+        <i className="lx-in-panda-light" />
+        <div className="lx-in-panda-film">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={PANDA_POSTER} alt="" width={640} height={720} loading="lazy" />
+          {on && <video ref={inRef} src={phoneClipSrc('watch-in')} muted playsInline preload="auto" data-on={stage === 'in' || undefined} onEnded={toLoop} />}
+          {on && <video ref={loopRef} src={phoneClipSrc('watch-loop')} muted playsInline loop preload="auto" data-on={stage === 'loop' || undefined} />}
+        </div>
+        <i className="lx-in-panda-floor" />
+      </div>
+      <p className="lx-in-panda-cap"><b>Shortcut</b> has <span className="lx-in-panda-arrow">→</span></p>
+    </div>
+  )
+}
+
 export function IntroSection() {
   const ref = useRef<HTMLElement>(null)
   useDirectionalReveal(ref)
+  usePhoneFootReveal(ref, '.lx-in-gone, .lx-in-lede')
   const d = (s: number) => ({ '--d': `${s}s` } as React.CSSProperties)
   return (
     <section ref={ref} className="section-inner lx-in" aria-labelledby="intro-title">
       <header className="lx-in-head">
         {/* (the label, refined — user 2026-11-21: the plain pill looked odd): the brand mark, "Introducing" quiet,
             "Shortcut" bright, a fine lime-to-clear edge and one light sweep as it comes in */}
-        <p className="lx-in-eyebrow" data-anim="down">
+        <p className="lx-in-eyebrow lp-label" data-anim="down">
           <span className="lx-in-eyebrow-mark" aria-hidden="true"><BrandLogo size="sm" /></span>
           <span className="lx-in-eyebrow-a">Introducing</span>
           <b>Shortcut</b>
@@ -758,7 +894,8 @@ export function IntroSection() {
 
       {/* (two sentences, two lines of their own — user 2026-11-21: the bold one broke mid-line into the next) */}
       <div className="lx-in-lede" data-anim="up" style={d(0.3)}>
-        <p className="lx-in-lede-1">Shortcut makes turning long videos into short-form content incredibly simple.</p>
+        {/* ("simple." is the key word on phones: styled like The Problem's question, user 2026-11-28; plain on desktop) */}
+        <p className="lx-in-lede-1">Shortcut makes turning long videos into short-form content incredibly <span className="lx-in-key">simple.</span></p>
         <p className="lx-in-lede-2">Upload your video, select the moment you want, guide the frame and let Shortcut handle the repetitive editing work.</p>
       </div>
 
@@ -775,6 +912,7 @@ export function IntroSection() {
 
       {/* the payoff line, as a picture: what you do · what Shortcut does */}
       <div className="lx-in-split">
+        <IntroPanda />
         <div className="lx-in-card lx-in-you" data-anim="left" style={d(0.15)}>
           <span className="lx-in-tag"><span className="lx-in-tag-mark" aria-hidden="true"><User strokeWidth={2.2} /></span>Your part</span>
           <h3>You decide what matters.</h3>
@@ -796,11 +934,29 @@ export function IntroSection() {
           <span className="lx-in-tag lx-in-tag-sc"><span className="lx-in-tag-mark" aria-hidden="true"><BrandLogo size="sm" /></span>Shortcut’s part</span>
           <h3>Shortcut does the rest.</h3>
           <ul>
-            {SHORTCUT_DOES.map((text, i) => (
-              <li key={text} style={{ '--i': i, '--ri': SHORTCUT_DOES.length - 1 - i } as React.CSSProperties}>
-                <svg className="lx-in-mark" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10.5l4 4L16 6" /></svg>{text}
-              </li>
+            {SHORTCUT_DOES.map((text, i) => {
+              const Icon = SHORTCUT_ICONS[i]
+              return (
+                <li key={text} style={{ '--i': i, '--ri': SHORTCUT_DOES.length - 1 - i } as React.CSSProperties}>
+                  <svg className="lx-in-mark" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10.5l4 4L16 6" /></svg>
+                  <span className="lx-in-sc-ico" aria-hidden="true"><Icon strokeWidth={2} /></span>
+                  <span className="lx-in-sc-t">{text}</span>
+                  {i === SHORTCUT_DOES.length - 1 && <span className="lx-in-sc-bar" aria-hidden="true"><i /><b>Ready</b></span>}
+                </li>
+              )
+            })}
+          </ul>
+          {/* (phones only: the main features as chips, then Exporting → Ready) */}
+          <ul className="lx-in-feats" aria-label="What Shortcut does">
+            {SHORTCUT_FEATURES_PHONE.map(({ Icon, text }, i) => (
+              <li key={text} style={{ '--i': i } as React.CSSProperties}><Icon strokeWidth={2} aria-hidden="true" />{text}</li>
             ))}
+            <li className="lx-in-feats-export" style={{ '--i': SHORTCUT_FEATURES_PHONE.length } as React.CSSProperties}>
+              <Send strokeWidth={2} aria-hidden="true" />Exporting
+              <span className="lx-in-feats-bar" aria-hidden="true"><i /></span>
+              <b>Ready</b>
+              <svg className="lx-in-feats-tick" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10.5l4 4L16 6" /></svg>
+            </li>
           </ul>
           <p className="lx-in-foot lx-in-foot-sc">The repetitive editing work, handled for you.</p>
         </div>
@@ -829,7 +985,7 @@ export function WhySection() {
   return (
     <section ref={ref} className="section-inner lx-why" aria-labelledby="why-title">
       <header className="lx-why-head">
-        <p className="lx-why-eyebrow" data-anim="down">Why Shortcut?</p>
+        <p className="lx-why-eyebrow lp-label" data-anim="down">Why Shortcut?</p>
         <h2 className="lx-why-title" id="why-title" data-anim="up" style={d(0.1)}>
           Not Another AI That <span className="lx-why-em">Decides for You.</span>
         </h2>
@@ -884,7 +1040,7 @@ export function WhoSection() {
   return (
     <section ref={ref} className="section-inner lx-who" aria-labelledby="who-title">
       <header className="lx-who-head">
-        <p className="lx-why-eyebrow" data-anim="down">Who is it for?</p>
+        <p className="lx-why-eyebrow lp-label" data-anim="down">Who is it for?</p>
         <h2 className="lx-who-title" id="who-title" data-anim="up" style={d(0.1)}>
           <span>Made for Everyone</span> <span className="lx-who-em">Creating Long-Form Content.</span>
         </h2>

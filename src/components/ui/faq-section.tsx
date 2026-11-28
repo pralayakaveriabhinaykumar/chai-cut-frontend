@@ -24,7 +24,7 @@ export function FaqSection({ eyebrow, title, description, items }: {
   return (
     <section className="section-inner faq">
       <div className="section-head reveal">
-        <p className="faq-eyebrow"><CircleHelp aria-hidden /> {eyebrow}</p>
+        <p className="faq-eyebrow lp-label"><CircleHelp aria-hidden /> {eyebrow}</p>
         <h2 className="section-title">{title}</h2>
         <p className="section-sub">{description}</p>
       </div>

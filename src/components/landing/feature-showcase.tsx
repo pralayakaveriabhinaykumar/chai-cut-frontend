@@ -75,7 +75,7 @@ export function FeatureShowcase({ eyebrow, title, items, onJump }: {
       <div className="fg-sticky">
         <header className="fg-head">
           <div>
-            <p className="section-eyebrow fg-eyebrow">{eyebrow}</p>
+            <p className="section-eyebrow fg-eyebrow lp-label">{eyebrow}</p>
             <h2 className="section-title fg-h">{title}</h2>
           </div>
           <div className="fg-nav">
